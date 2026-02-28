@@ -1,15 +1,18 @@
 <template>
 	<GenericModal
-		:id="modalId"
+		:id="`${name}Modal`"
 		ref="modal"
 		:title="modalTitle"
-		:data-testid="`${deviceType}-modal`"
-		:fade="fade"
+		:data-testid="`${name}-modal`"
 		:size="modalSize"
+		:config-modal-name="name"
 		@open="handleOpen"
 		@close="handleClose"
 		@visibilitychange="handleVisibilityChange"
 	>
+		<template #header-actions>
+			<DeviceInfoButton v-if="id" :id="id" />
+		</template>
 		<form ref="form" class="container mx-0 px-0">
 			<slot name="pre-content" :values="values"></slot>
 
@@ -43,7 +46,9 @@
 				<div v-else>
 					<p v-if="loadingTemplate">{{ $t("config.general.templateLoading") }}</p>
 					<SponsorTokenRequired v-if="sponsorTokenRequired" />
-					<Markdown v-if="description" :markdown="description" class="my-4" />
+					<slot name="template-description">
+						<Markdown v-if="description" :markdown="description" class="my-4" />
+					</slot>
 
 					<div v-if="authRequired">
 						<PropertyEntry
@@ -54,60 +59,68 @@
 							v-model="values[param.Name]"
 							:service-values="serviceValues[param.Name]"
 						/>
-						<p v-if="authError" class="text-danger">{{ authError }}</p>
-						<div class="d-flex justify-content-end">
-							<div
-								v-if="authProviderUrl"
-								class="d-flex flex-column align-items-end gap-2"
+
+						<div v-if="auth.code">
+							<hr class="my-5" />
+							<AuthCodeDisplay
+								:id="`${deviceType}AuthCode`"
+								:code="auth.code"
+								:expiry="auth.expiry"
+							/>
+						</div>
+
+						<ErrorMessage :error="auth.error" />
+
+						<div
+							class="my-4 d-flex align-items-stretch justify-content-sm-between align-items-sm-baseline flex-column-reverse flex-sm-row gap-2"
+						>
+							<!-- delete / cancel -->
+							<button
+								v-if="isDeletable"
+								type="button"
+								class="btn btn-link text-danger align-self-start"
+								tabindex="0"
+								@click.prevent="handleRemove"
 							>
-								<a
-									:href="authProviderUrl"
-									target="_blank"
-									rel="noopener noreferrer"
-									class="btn btn-primary"
-								>
-									{{
-										$t("config.general.authPerform", {
-											provider: authProviderDomain,
-										})
-									}}
-								</a>
-								<small>{{ $t("config.general.authPerformHint") }}</small>
-							</div>
+								{{ $t("config.general.delete") }}
+							</button>
 							<button
 								v-else
-								class="btn btn-outline-primary"
-								:disabled="authLoading"
-								@click.prevent="checkAuthStatus"
+								type="button"
+								class="btn btn-link text-muted align-self-start"
+								data-bs-dismiss="modal"
+								tabindex="0"
 							>
-								<span
-									v-if="authLoading"
-									class="spinner-border spinner-border-sm me-2"
-									role="status"
-									aria-hidden="true"
-								></span>
-								{{ $t("config.general.authPrepare") }}
+								{{ $t("config.general.cancel") }}
 							</button>
+							<!-- perform auth -->
+							<AuthConnectButton
+								:provider-url="auth.providerUrl ?? undefined"
+								:loading="auth.loading"
+								@prepare="checkAuthStatus"
+							/>
 						</div>
 					</div>
 					<div v-else>
 						<slot name="after-template-info" :values="values"></slot>
 
-						<Modbus
-							v-if="modbus"
-							v-model:modbus="values['modbus']"
-							v-model:id="values['id']"
-							v-model:host="values['host']"
-							v-model:port="values['port']"
-							v-model:device="values['device']"
-							v-model:baudrate="values['baudrate']"
-							v-model:comset="values['comset']"
-							:defaultId="modbus.ID ? Number(modbus.ID) : undefined"
-							:defaultComset="modbus.Comset"
-							:defaultBaudrate="modbus.Baudrate"
-							:defaultPort="modbus.Port"
-							:capabilities="modbusCapabilities"
-						/>
+						<div v-if="!hideTemplateFields">
+							<Modbus
+								v-if="modbus"
+								v-model:modbus="values['modbus']"
+								v-model:id="values['id']"
+								v-model:host="values['host']"
+								v-model:port="values['port']"
+								v-model:device="values['device']"
+								v-model:baudrate="values['baudrate']"
+								v-model:comset="values['comset']"
+								component-id="device"
+								:defaultId="modbus.ID ? Number(modbus.ID) : undefined"
+								:defaultComset="modbus.Comset"
+								:defaultBaudrate="modbus.Baudrate"
+								:defaultPort="modbus.Port"
+								:capabilities="modbusCapabilities"
+							/>
 
 						<PropertyEntry
 							v-for="param in normalParams"
@@ -139,6 +152,7 @@
 								<slot name="collapsible-more" :values="values"></slot>
 							</template>
 						</PropertyCollapsible>
+						</div>
 					</div>
 				</div>
 
@@ -161,7 +175,10 @@
 
 <script lang="ts">
 import { defineComponent, type PropType } from "vue";
-import GenericModal, { type ModalFade } from "../../Helper/GenericModal.vue";
+import GenericModal from "../../Helper/GenericModal.vue";
+import DeviceInfoButton from "./DeviceInfoButton.vue";
+import { closeModal } from "@/configModal";
+import ErrorMessage from "../../Helper/ErrorMessage.vue";
 import PropertyEntry from "../PropertyEntry.vue";
 import PropertyCollapsible from "../PropertyCollapsible.vue";
 import Modbus from "./Modbus.vue";
@@ -170,9 +187,11 @@ import Markdown from "../Markdown.vue";
 import SponsorTokenRequired from "./SponsorTokenRequired.vue";
 import TemplateSelector, { type TemplateGroup } from "./TemplateSelector.vue";
 import YamlEntry from "./YamlEntry.vue";
+import AuthCodeDisplay from "../AuthCodeDisplay.vue";
+import AuthConnectButton from "../AuthConnectButton.vue";
 import { initialTestState, performTest } from "../utils/test";
+import { initialAuthState, prepareAuthLogin } from "../utils/authProvider";
 import sleep from "@/utils/sleep";
-import { extractDomain } from "@/utils/extractDomain";
 import { ConfigType } from "@/types/evcc";
 import type { DeviceType, Timeout } from "@/types/evcc";
 import {
@@ -188,6 +207,7 @@ import {
 	createDeviceUtils,
 	fetchServiceValues,
 } from "./index";
+import deepEqual from "@/utils/deepEqual";
 
 const CUSTOM_FIELDS = ["modbus"];
 
@@ -195,6 +215,8 @@ export default defineComponent({
 	name: "DeviceModalBase",
 	components: {
 		GenericModal,
+		DeviceInfoButton,
+		ErrorMessage,
 		PropertyEntry,
 		PropertyCollapsible,
 		Modbus,
@@ -203,17 +225,18 @@ export default defineComponent({
 		SponsorTokenRequired,
 		TemplateSelector,
 		YamlEntry,
+		AuthCodeDisplay,
+		AuthConnectButton,
 	},
 	props: {
 		deviceType: { type: String as PropType<DeviceType>, required: true },
 		id: Number as PropType<number | undefined>,
-		fade: String as PropType<ModalFade>,
+		name: String,
 		isSponsor: Boolean,
 		// Computed/derived props that must be provided by parent
 		modalTitle: { type: String, required: true },
 		initialValues: { type: Object as PropType<DeviceValues>, required: true },
 		customFields: { type: Array as PropType<string[]>, default: () => CUSTOM_FIELDS },
-		modalId: { type: String, required: true },
 		// Optional: whether to show main content (for multi-step modals like MeterModal)
 		showMainContent: { type: Boolean, default: true },
 		// Optional: usage parameter for loadProducts (e.g., meter type: "pv", "battery", "aux", "ext")
@@ -246,8 +269,18 @@ export default defineComponent({
 		onConfigurationLoaded: Function as PropType<(values: DeviceValues) => void>,
 		// Optional: external template selection control (for parent to reset template)
 		externalTemplate: String as PropType<string | null>,
+		// Optional: hide template fields, e.g. because ocpp step was not completed
+		hideTemplateFields: { type: Boolean, default: false },
 	},
-	emits: ["added", "updated", "removed", "close", "template-changed", "update:externalTemplate"],
+	emits: [
+		"added",
+		"updated",
+		"removed",
+		"close",
+		"template-changed",
+		"update:externalTemplate",
+		"reset",
+	],
 	data() {
 		return {
 			isModalVisible: false,
@@ -255,10 +288,7 @@ export default defineComponent({
 			templateName: null as string | null,
 			template: null as Template | null,
 			saving: false,
-			authOk: false,
-			authLoading: false,
-			authError: null as string | null,
-			authProviderUrl: null as string | null,
+			auth: initialAuthState(),
 			succeeded: false,
 			loadingTemplate: false,
 			values: { ...this.initialValues } as DeviceValues,
@@ -305,6 +335,9 @@ export default defineComponent({
 		advancedParams() {
 			return this.templateParams.filter((p) => p.Advanced || p.Deprecated);
 		},
+		visibleParams() {
+			return this.authRequired ? this.authParams : this.templateParams;
+		},
 		modbus(): ModbusParam | undefined {
 			const params = this.template?.Params || [];
 			return (params as ModbusParam[]).find((p) => p.Name === "modbus");
@@ -313,12 +346,11 @@ export default defineComponent({
 			return (this.modbus?.Choice || []) as ModbusCapability[];
 		},
 		modbusDefaults() {
-			const { ID, Comset, Baudrate, Port } = this.modbus || {};
 			return {
-				id: ID,
-				comset: Comset,
-				baudrate: Baudrate,
-				port: Port,
+				id: this.modbus?.ID,
+				comset: this.modbus?.Comset,
+				baudrate: this.modbus?.Baudrate,
+				port: this.modbus?.Port,
 			};
 		},
 		description() {
@@ -350,6 +382,11 @@ export default defineComponent({
 				delete data["icon"];
 			}
 
+			// Remove modbus field if current template doesn't have modbus parameter
+			if (!this.modbus) {
+				delete data["modbus"];
+			}
+
 			// Allow parent to transform API data
 			if (this.transformApiData) {
 				data = this.transformApiData(data, this.values);
@@ -364,7 +401,19 @@ export default defineComponent({
 			return !this.isNew;
 		},
 		showActions() {
-			return (this.templateName && !this.authRequired) || this.showYamlInput;
+			// explicitly hide template fields (ocpp step 1)
+			if (this.hideTemplateFields) {
+				return false;
+			}
+			// yaml input type
+			if (this.showYamlInput) {
+				return true;
+			}
+			// template selected and no auth prerequisit
+			if (this.templateName && !this.authRequired) {
+				return true;
+			}
+			return false;
 		},
 		showYamlInput() {
 			return this.isYamlInputTypeByValue(this.values.type);
@@ -376,9 +425,10 @@ export default defineComponent({
 			return this.isTypeDeprecated && this.isTypeDeprecated(this.values.type);
 		},
 		authRequired() {
-			return this.template?.Auth && !this.authOk;
+			return this.template?.Auth && !this.auth.ok;
 		},
 		authValuesMissing() {
+			console.log("authValuesMissing", this.authValues);
 			return this.template?.Auth && Object.values(this.authValues).some((value) => !value);
 		},
 		authValues() {
@@ -390,9 +440,6 @@ export default defineComponent({
 				},
 				{} as Record<string, any>
 			);
-		},
-		authProviderDomain() {
-			return this.authProviderUrl ? extractDomain(this.authProviderUrl) : null;
 		},
 	},
 	watch: {
@@ -481,11 +528,24 @@ export default defineComponent({
 			// update on auth state change
 			this.updateServiceValues();
 		},
+		serviceValues: {
+			handler(newValue, oldValue) {
+				// Apply defaults only for specific params whose service values changed
+				Object.keys(newValue).forEach((paramName) => {
+					if (!deepEqual(newValue[paramName], oldValue[paramName])) {
+						this.applyServiceDefault(paramName);
+					}
+				});
+			},
+			deep: true,
+		},
 	},
 	methods: {
 		reset() {
 			this.values = { ...this.initialValues } as DeviceValues;
 			this.test = initialTestState();
+			this.resetAuthStatus();
+			this.$emit("reset");
 		},
 		async loadConfiguration() {
 			try {
@@ -548,8 +608,7 @@ export default defineComponent({
 			this.loadingTemplate = false;
 		},
 		resetAuthStatus() {
-			this.authOk = false;
-			this.authProviderUrl = null;
+			this.auth = initialAuthState();
 		},
 		async checkAuthStatus() {
 			this.resetAuthStatus();
@@ -569,33 +628,22 @@ export default defineComponent({
 
 			const { type } = this.template.Auth;
 			const values = this.authValues;
-			this.authLoading = true;
+			this.auth.loading = true;
 			const result = await this.device.checkAuth(type, values);
-			this.authLoading = false;
+			this.auth.loading = false;
 			if (result.success) {
 				// login already exists
-				this.authError = null;
-				this.authOk = true;
+				this.auth.error = null;
+				this.auth.ok = true;
 			} else if (result.authId) {
-				// todo, save form field state and restore on callback
-				await this.performAuthLogin(result.authId);
+				await this.prepareAuthLogin(result.authId);
 			} else {
 				// something else failed
-				this.authError = result.error ?? "unknown error";
+				this.auth.error = result.error ?? "unknown error";
 			}
 		},
-		async performAuthLogin(authId: string) {
-			// trigger external login flow
-			try {
-				this.authLoading = true;
-				this.authProviderUrl = await this.device.getAuthProviderUrl(authId);
-				this.authLoading = false;
-			} catch (e) {
-				console.error("performAuthLogin failed", e);
-				this.authError = (e as any).message;
-			} finally {
-				this.authLoading = false;
-			}
+		async prepareAuthLogin(authId: string) {
+			await prepareAuthLogin(this.auth, authId);
 		},
 		async create(force = false) {
 			if (this.test.isUnknown && !force) {
@@ -619,9 +667,9 @@ export default defineComponent({
 				const { name } = await this.device.create(this.apiData, force);
 				this.saving = false;
 				this.succeeded = true;
-				await sleep(1000);
+				await sleep(500);
 				this.$emit("added", name);
-				(this.$refs["modal"] as any).close();
+				await closeModal({ action: "added", name });
 			} catch (e) {
 				handleError(e, "create failed");
 				this.saving = false;
@@ -650,12 +698,11 @@ export default defineComponent({
 			try {
 				console.log("calling device.update", this.apiData);
 				await this.device.update(this.id!, this.apiData, force);
-				console.log("update succeeded, closing modal");
 				this.saving = false;
 				this.succeeded = true;
-				await sleep(1000);
+				await sleep(500);
 				this.$emit("updated");
-				(this.$refs["modal"] as any).close();
+				await closeModal({ action: "updated" });
 			} catch (e) {
 				console.error("update failed", e);
 				handleError(e, "update failed");
@@ -666,7 +713,7 @@ export default defineComponent({
 			try {
 				await this.device.remove(this.id!);
 				this.$emit("removed");
-				(this.$refs["modal"] as any).close();
+				await closeModal({ action: "removed" });
 			} catch (e) {
 				handleError(e, "remove failed");
 			}
@@ -710,8 +757,21 @@ export default defineComponent({
 				clearTimeout(this.serviceValuesTimer);
 			}
 			this.serviceValuesTimer = setTimeout(async () => {
-				this.serviceValues = await fetchServiceValues(this.templateParams, this.values);
+				// Fetch only visible params to prevent premature auth instance creation
+				this.serviceValues = await fetchServiceValues(this.visibleParams, {
+					...this.modbusDefaults,
+					...this.values,
+				});
 			}, 500);
+		},
+		applyServiceDefault(paramName: string) {
+			// Auto-apply single service value when field is empty and required
+			const values = this.serviceValues[paramName];
+			const param = this.templateParams.find((p) => p.Name === paramName);
+			// Only auto-apply if exactly one value is returned, field is empty, and field is required
+			if (values?.length === 1 && !this.values[paramName] && param?.Required) {
+				this.values[paramName] = values[0];
+			}
 		},
 	},
 });

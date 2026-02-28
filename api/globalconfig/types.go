@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/evcc-io/evcc/api"
+	"github.com/evcc-io/evcc/charger/ocpp"
 	"github.com/evcc-io/evcc/hems/shm"
 	"github.com/evcc-io/evcc/plugin/mqtt"
 	"github.com/evcc-io/evcc/server/eebus"
@@ -17,34 +18,51 @@ import (
 	"github.com/evcc-io/evcc/util/modbus"
 )
 
+// ConfigStatus for publishing config, status and source to UI and external systems
+type ConfigStatus struct {
+	Config     any        `json:"config,omitempty"`
+	Status     any        `json:"status,omitempty"`
+	YamlSource YamlSource `json:"yamlSource,omitempty"`
+}
+
+type YamlSource string
+
+const (
+	YamlSourceFile YamlSource = "file"
+	YamlSourceDb   YamlSource = "db"
+	YamlSourceNone YamlSource = ""
+)
+
 type All struct {
-	Network      Network
-	Log          string
-	SponsorToken string
-	Plant        string // telemetry plant id
-	Telemetry    bool
-	Mcp          bool
-	Metrics      bool
-	Profile      bool
-	Levels       map[string]string
-	Interval     time.Duration
-	Database     DB
-	Mqtt         Mqtt
-	ModbusProxy  []ModbusProxy
-	Javascript   []Javascript
-	Go           []Go
-	Influx       Influx
-	EEBus        eebus.Config
-	HEMS         Hems
-	SHM          shm.Config
-	Messaging    Messaging
-	Meters       []config.Named
-	Chargers     []config.Named
-	Vehicles     []config.Named
-	Tariffs      Tariffs
-	Site         map[string]any
-	Loadpoints   []config.Named
-	Circuits     []config.Named
+	Network         Network
+	Ocpp            ocpp.Config
+	Log             string
+	SponsorToken    string
+	Plant           string // telemetry plant id
+	Telemetry       bool
+	Mcp             bool
+	Metrics         bool
+	Profile         bool
+	Levels          map[string]string
+	Interval        time.Duration
+	Database        DB
+	Mqtt            Mqtt
+	ModbusProxy     []ModbusProxy
+	Javascript      []Javascript
+	Go              []Go
+	Influx          Influx
+	EEBus           eebus.Config
+	HEMS            Hems
+	SHM             shm.Config
+	Messaging       Messaging
+	MessagingEvents MessagingEvents
+	Meters          []config.Named
+	Chargers        []config.Named
+	Vehicles        []config.Named
+	Tariffs         Tariffs
+	Site            map[string]any
+	Loadpoints      []config.Named
+	Circuits        []config.Named
 }
 
 type Javascript struct {
@@ -77,13 +95,6 @@ func (c Hems) Redacted() any {
 
 var _ api.Redactor = (*Mqtt)(nil)
 
-func masked(s any) string {
-	if s != "" {
-		return "***"
-	}
-	return ""
-}
-
 type Mqtt struct {
 	mqtt.Config `mapstructure:",squash"`
 	Topic       string `json:"topic"`
@@ -95,12 +106,12 @@ func (m Mqtt) Redacted() any {
 		Config: mqtt.Config{
 			Broker:     m.Broker,
 			User:       m.User,
-			Password:   masked(m.Password),
+			Password:   util.Masked(m.Password),
 			ClientID:   m.ClientID,
 			Insecure:   m.Insecure,
-			CaCert:     masked(m.CaCert),
-			ClientCert: masked(m.ClientCert),
-			ClientKey:  masked(m.ClientKey),
+			CaCert:     util.Masked(m.CaCert),
+			ClientCert: util.Masked(m.ClientCert),
+			ClientKey:  util.Masked(m.ClientKey),
 		},
 		Topic: m.Topic,
 	}
@@ -122,10 +133,10 @@ func (c Influx) Redacted() any {
 	return Influx{
 		URL:      c.URL,
 		Database: c.Database,
-		Token:    masked(c.Token),
+		Token:    util.Masked(c.Token),
 		Org:      c.Org,
 		User:     c.User,
-		Password: masked(c.Password),
+		Password: util.Masked(c.Password),
 		Insecure: c.Insecure,
 	}
 }
@@ -136,16 +147,20 @@ type DB struct {
 }
 
 type Messaging struct {
-	Events   map[string]MessagingEventTemplate
+	Events   MessagingEvents
 	Services []config.Typed
 }
 
+type MessagingEvents = map[string]MessagingEventTemplate
+
 // MessagingEventTemplate is the push message configuration for an event
 type MessagingEventTemplate struct {
-	Title, Msg string
+	Title    string `json:"title"`
+	Msg      string `json:"msg"`
+	Disabled bool   `json:"disabled"`
 }
 
-func (c Messaging) Configured() bool {
+func (c Messaging) IsConfigured() bool {
 	return len(c.Services) > 0 || len(c.Events) > 0
 }
 

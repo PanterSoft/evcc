@@ -1,7 +1,7 @@
 package charger
 
-//go:generate go tool decorate -f decorateHomeAssistant -b *HomeAssistant -r api.Charger -t "api.Meter,CurrentPower,func() (float64, error)" -t "api.MeterEnergy,TotalEnergy,func() (float64, error)" -t "api.PhaseCurrents,Currents,func() (float64, float64, float64, error)" -t "api.PhaseVoltages,Voltages,func() (float64, float64, float64, error)"
-//  -t "api.CurrentGetter,GetMaxCurrent,func() (float64, error)"
+//go:generate go tool decorate -f decorateHomeAssistant -b *HomeAssistant -r api.Charger -t api.Meter,api.MeterEnergy,api.PhaseCurrents,api.PhaseVoltages
+//  -t api.CurrentGetter
 
 import (
 	"errors"
@@ -27,10 +27,10 @@ func init() {
 
 // NewHomeAssistantFromConfig creates a HomeAssistant charger from generic config
 func NewHomeAssistantFromConfig(other map[string]any) (api.Charger, error) {
-	cc := struct {
-		_URI       string `mapstructure:"uri"`   // TODO deprecated
-		_Token     string `mapstructure:"token"` // TODO deprecated
-		Home       string
+	var cc struct {
+		URI        string
+		Token_     string   `mapstructure:"token"` // TODO deprecated
+		Home       string   // TODO deprecated
 		Status     string   // required - sensor for charge status
 		Enabled    string   // required - sensor for enabled state
 		Enable     string   // required - switch/input_boolean for enable/disable
@@ -39,8 +39,6 @@ func NewHomeAssistantFromConfig(other map[string]any) (api.Charger, error) {
 		Energy     string   // optional - energy sensor
 		Currents   []string // optional - current sensors for L1, L2, L3
 		Voltages   []string // optional - voltage sensors for L1, L2, L3
-	}{
-		Home: "Home",
 	}
 
 	if err := util.DecodeOther(other, &cc); err != nil {
@@ -58,7 +56,8 @@ func NewHomeAssistantFromConfig(other map[string]any) (api.Charger, error) {
 	}
 
 	log := util.NewLogger("ha-charger")
-	conn, err := homeassistant.NewConnection(log, cc.Home)
+
+	conn, err := homeassistant.NewConnection(log, cc.URI, cc.Home)
 	if err != nil {
 		return nil, err
 	}

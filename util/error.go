@@ -13,12 +13,17 @@ func ErrorAsJson(err error) any {
 		Error         string `json:"error"`
 		Line          int    `json:"line,omitempty"`
 		LoginRequired string `json:"loginRequired,omitempty"`
+		URI           string `json:"uri,omitempty"`
 	}{
 		Error: err.Error(),
 	}
 
-	if ae := new(api.ErrLoginRequired); errors.As(err, &ae) {
+	if ae, ok := errors.AsType[*api.ErrLoginRequired](err); ok {
 		res.LoginRequired = ae.ProviderAuth
+	}
+
+	if ue, ok := errors.AsType[*api.ErrUrl](err); ok {
+		res.URI = ue.URL().String()
 	}
 
 	var (
