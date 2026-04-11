@@ -154,7 +154,17 @@ export async function loadServiceValues(path: string) {
     const response = await api.get(`/config/service/${path}`, {
       validateStatus: (status) => status >= 200 && status < 500,
     });
-    return (response.data as string[]) || [];
+    if (response.status >= 400 && response.data && typeof response.data === "object") {
+      const err = (response.data as { error?: string }).error;
+      if (err) {
+        handleError({ response: { data: response.data } }, err);
+        return [];
+      }
+    }
+    if (Array.isArray(response.data)) {
+      return response.data as string[];
+    }
+    return [];
   } catch {
     return [];
   }
@@ -185,8 +195,11 @@ export const createServiceEndpoints = (params: TemplateParam[]): ParamService[] 
       const stringValues = (values: Record<string, any>): Record<string, string> =>
         Object.entries(values).reduce(
           (acc, [key, val]) => {
-            if (val !== undefined && val !== null && val !== "" && key !== "modbus")
-              acc[key] = String(val);
+            if (key === "modbus") return acc;
+            if (val === undefined || val === null) return acc;
+            // allow empty email/user so IAquaLink service URL placeholders resolve
+            if (val === "" && key !== "email" && key !== "user") return acc;
+            acc[key] = String(val);
             return acc;
           },
           {} as Record<string, string>
@@ -195,8 +208,13 @@ export const createServiceEndpoints = (params: TemplateParam[]): ParamService[] 
       return {
         name: param.Name,
         service: param.Service,
-        url: (values: Record<string, any>) =>
-          replacePlaceholders(expandModbus(param.Service!, values), stringValues(values)),
+        url: (values: Record<string, any>) => {
+          let merged = values;
+          if (param.Service?.includes("iaqualink")) {
+            merged = { email: "", user: "", ...values };
+          }
+          return replacePlaceholders(expandModbus(param.Service!, merged), stringValues(merged));
+        },
       } as ParamService;
     })
     .filter((endpoint): endpoint is ParamService => endpoint !== null);

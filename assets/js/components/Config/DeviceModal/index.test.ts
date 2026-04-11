@@ -99,4 +99,18 @@ describe("createServiceEndpoints", () => {
     // Non-empty value should replace placeholder
     expect(endpoints[0]!.url({ home: "main" })).toBe("homes/main/sensors");
   });
+
+  it("resolves iaqualink placeholders when only user is set", () => {
+    const params = [
+      buildParam("device", "iaqualink/devices?email={email}&user={user}&password={password}"),
+    ];
+    const endpoints = createServiceEndpoints(params);
+    expect(
+      endpoints[0]!.url({
+        email: "",
+        user: "me@example.com",
+        password: "secret",
+      })
+    ).toBe("iaqualink/devices?email=&user=me%40example.com&password=secret");
+  });
 });

@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/evcc-io/evcc/util"
@@ -45,16 +46,24 @@ func (h *PingHandler) Test(log *util.Logger, in ResultDetails) []ResultDetails {
 	pinger.Timeout = h.Timeout
 
 	if err = pinger.Run(); err != nil {
-		log.FATAL.Println("ping:", err)
-
-		if runtime.GOOS != "windows" {
+		if pingErrPermission(err) {
+			log.FATAL.Println("ping:", err)
 			log.FATAL.Println("")
-			log.FATAL.Println("In order to run evcc in discovery mode, make sure to allow ping:")
+			log.FATAL.Println("In order to run evcc in discovery mode, allow unprivileged ICMP:")
 			log.FATAL.Println("")
-			log.FATAL.Println("	sudo sysctl -w net.ipv4.ping_group_range=\"0 2147483647\"")
+			switch runtime.GOOS {
+			case "darwin":
+				log.FATAL.Println("	macOS: run evcc with sudo for this scan, or grant the binary permission to send ICMP.")
+			case "windows":
+				log.FATAL.Println("	Run evcc as Administrator for ICMP, or use SetPrivileged ping.")
+			default:
+				log.FATAL.Println("	sudo sysctl -w net.ipv4.ping_group_range=\"0 2147483647\"")
+			}
+			log.FATAL.Fatalln("")
 		}
-
-		log.FATAL.Fatalln("")
+		// Unreachable host, ICMP blocked, or transient error — skip this IP only (do not abort the whole scan).
+		log.TRACE.Printf("ping %s: %v", in.IP, err)
+		return nil
 	}
 
 	stat := pinger.Statistics()
@@ -64,4 +73,14 @@ func (h *PingHandler) Test(log *util.Logger, in ResultDetails) []ResultDetails {
 	}
 
 	return []ResultDetails{in}
+}
+
+func pingErrPermission(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "operation not permitted") ||
+		strings.Contains(s, "permission denied") ||
+		strings.Contains(s, "access denied")
 }

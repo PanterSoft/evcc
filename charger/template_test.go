@@ -36,12 +36,21 @@ var acceptable = []string{
 	"either identity or uuid are required",           // Plugchoice
 	"unsupported platform",                           // OpenWB Native
 	"missing config values: username, password, key", // E3DC
-	"must provide either uri (local mode) or email/password (cloud mode)", // IAquaLink
-	"cannot use both uri (local) and email/password (cloud)",              // IAquaLink
-	"device name is required for cloud mode",                              // IAquaLink
-	"IAquaLink login failed",                                              // IAquaLink
-	"failed to list IAquaLink devices",                                    // IAquaLink
-	"device not found in IAquaLink systems",                               // IAquaLink
+	"must provide either uri (local mode) or user/email and password (cloud mode)", // IAquaLink
+	"cannot use both uri (local) and email/password (cloud)",                       // IAquaLink
+	"device is required for cloud mode (serial number or name in IAquaLink)",       // IAquaLink
+	"invalid uri for local mode",                                                   // IAquaLink
+	"skipverify and allowunsupported cannot be combined",                           // IAquaLink
+	"IAquaLink login failed",                                                       // IAquaLink
+	"failed to list IAquaLink devices",                                             // IAquaLink
+	"device not found in IAquaLink systems",                                        // IAquaLink
+	"cannot read device capabilities",                                              // IAquaLink
+	"cannot reach IAquaLink device features API",                                   // IAquaLink
+	"IAquaLink: could not read device mode",                                        // IAquaLink
+	"no compatible IAquaLink device at",                                            // IAquaLink local probe
+	"no supported endpoint responded with valid state",                             // IAquaLink getModeLocal
+	"device mode could not be read (API limitation for this device)",               // IAquaLink cloud
+	"could not read device mode from IAquaLink API",                                // IAquaLink cloud
 }
 
 func TestTemplates(t *testing.T) {

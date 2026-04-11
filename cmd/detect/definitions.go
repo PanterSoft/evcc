@@ -39,6 +39,7 @@ const (
 	taskFroniusWeb   = "fronius-web"
 	taskTasmota      = "tasmota"
 	taskShelly       = "shelly"
+	taskIAquaLink    = "iaqualink"
 	// taskTPLink       = "tplink"
 )
 
@@ -287,5 +288,12 @@ func init() {
 			"path": "/shelly",
 			"jq":   ".type",
 		},
+	})
+
+	taskList.Add(tasks.Task{
+		ID:      taskIAquaLink,
+		Type:    tasks.Iaqualink,
+		Depends: TaskHttp,
+		Config:  map[string]any{},
 	})
 }

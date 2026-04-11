@@ -11,7 +11,10 @@ requirements:
 
       Unterstützt zwei Modi:
       - Lokaler Modus: Direkte Kommunikation über IP-Adresse (uri)
-      - Cloud-Modus: Über IAquaLink-Cloud (email/password/device)
+      - Cloud-Modus: Über IAquaLink-Cloud (Anmeldename und Passwort, Gerät)
+
+      Beim Start prüft evcc, ob das Gerät erreichbar ist und der Modus gelesen werden kann.
+      optional: allowunsupported (nur Cloud) bzw. skipverify (nur lokal) für Experten, wenn die Prüfung umgangen werden soll.
 
       Hinweis: Die evcc-Modi (sgready) werden wie folgt verwendet:
       - 3 Boost → IAquaLink „Boost"
@@ -19,13 +22,17 @@ requirements:
       - 1 Dimm → IAquaLink „Eco" bzw. „Aus"
 
       Für lokalen Modus: IP-Adresse angeben (z.B. http://192.168.1.100)
-      Für Cloud-Modus: Zugangsdaten und Gerätekennung angeben.
+      Netzwerk-Scan: `evcc detect` sucht im LAN nach Geräten, die die lokale IAquaLink-HTTP-API antworten lassen.
+      Für Cloud-Modus: E-Mail oder Benutzername, Passwort und Gerätekennung (Seriennummer oder Name).
     en: |
       Controls an IAquaLink-connected heat pump.
 
       Supports two modes:
       - Local mode: Direct communication via IP address (uri)
-      - Cloud mode: Via IAquaLink cloud (email/password/device)
+      - Cloud mode: Via IAquaLink cloud (login name and password, device)
+
+      On startup, evcc verifies reachability and that the operating mode can be read.
+      Optional: allowunsupported (cloud only) or skipverify (local only) for advanced users if checks must be bypassed.
 
       Note: evcc (sgready) modes are used as follows:
       - 3 Boost → IAquaLink "Boost"
@@ -33,7 +40,8 @@ requirements:
       - 1 Dimm → IAquaLink "Eco" or "Off"
 
       For local mode: Provide IP address (e.g., http://192.168.1.100)
-      For cloud mode: Provide credentials and device identifier.
+      Network scan: run `evcc detect` to search the LAN for hosts that expose the local IAquaLink HTTP API.
+      For cloud mode: Provide email or username, password, and device identifier (serial or name).
 params:
   - name: mode
     description:
@@ -59,13 +67,39 @@ params:
       - name: mode
         check: equal
         value: local
+  - name: skipverify
+    description:
+      de: Kompatibilitätsprüfung überspringen
+      en: Skip compatibility check
+    help:
+      de: Nur lokal. Überspringt die HTTP-Prüfung am Start (nicht empfohlen).
+      en: Local mode only. Skips the startup HTTP probe (not recommended).
+    type: bool
+    default: false
+    required: false
+    dependencies:
+      - name: mode
+        check: equal
+        value: local
   - name: email
     description:
       de: IAquaLink E-Mail
       en: IAquaLink email
     help:
-      de: Nur für Cloud-Modus erforderlich. E-Mail-Adresse für die IAquaLink-Cloud-Anmeldung.
-      en: Required for cloud mode only. Email address for IAquaLink cloud login.
+      de: Cloud-Modus. Anmelde-E-Mail (wie in der IAquaLink-App). Alternativ Feld „Benutzername".
+      en: Cloud mode. Login email (as in the IAquaLink app). Alternatively use the username field.
+    required: false
+    dependencies:
+      - name: mode
+        check: equal
+        value: cloud
+  - name: user
+    description:
+      de: Benutzername (Alternative zu E-Mail)
+      en: Username (alternative to email)
+    help:
+      de: Cloud-Modus. Kann statt E-Mail gesetzt werden; die IAquaLink-API verwendet intern ein E-Mail-Feld.
+      en: Cloud mode. Use instead of email if needed; the IAquaLink API uses an email-shaped login field internally.
     required: false
     dependencies:
       - name: mode
@@ -89,8 +123,23 @@ params:
       de: Seriennummer oder Name
       en: Serial number or name
     help:
-      de: Nur für Cloud-Modus erforderlich. Seriennummer (bevorzugt) oder Name des Geräts in IAquaLink. Seriennummer wird zuerst versucht.
-      en: Required for cloud mode only. Serial number (preferred) or name of the device in IAquaLink. Serial number is tried first.
+      de: Cloud-Modus. Nach E-Mail/Benutzername und Passwort erscheint eine Liste der Geräte dieses Kontos (oder manuell Seriennummer bzw. Name wie in der App).
+      en: Cloud mode. After email/username and password, pick a device from the list (or enter serial or name as in the app).
+    required: false
+    service: iaqualink/devices?email={email}&user={user}&password={password}
+    dependencies:
+      - name: mode
+        check: equal
+        value: cloud
+  - name: allowunsupported
+    description:
+      de: Erzwinge nutzbare Konfiguration (Experten)
+      en: Allow unsupported device (expert)
+    help:
+      de: Nur Cloud. Start auch wenn Gerätefähigkeiten oder Modus nicht gelesen werden können (eingeschränkter Betrieb).
+      en: Cloud only. Start even if capabilities or mode read fails (degraded operation).
+    type: bool
+    default: false
     required: false
     dependencies:
       - name: mode
@@ -101,8 +150,19 @@ render: |
   type: iaqualink
   {{- if eq .mode "local" }}
   uri: "{{ .uri }}"
+  {{- if .skipverify }}
+  skipverify: true
+  {{- end }}
   {{- else }}
+  {{- if .email }}
   email: "{{ .email }}"
+  {{- end }}
+  {{- if .user }}
+  user: "{{ .user }}"
+  {{- end }}
   password: "{{ .password }}"
   device: "{{ .device }}"
+  {{- if .allowunsupported }}
+  allowunsupported: true
+  {{- end }}
   {{- end }}

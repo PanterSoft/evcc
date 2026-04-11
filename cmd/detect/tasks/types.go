@@ -5,12 +5,20 @@ import (
 )
 
 type ResultDetails struct {
-	IP           string
-	Port         int           `json:",omitempty"`
-	Topic        string        `json:",omitempty"`
-	ModbusResult *ModbusResult `json:",omitempty"`
-	KebaResult   *KebaResult   `json:",omitempty"`
-	SmaResult    *SmaResult    `json:",omitempty"`
+	IP              string
+	Port            int              `json:",omitempty"`
+	Topic           string           `json:",omitempty"`
+	ModbusResult    *ModbusResult    `json:",omitempty"`
+	KebaResult      *KebaResult      `json:",omitempty"`
+	SmaResult       *SmaResult       `json:",omitempty"`
+	IaqualinkResult *IaqualinkResult `json:",omitempty"`
+}
+
+// IaqualinkResult holds discovery output for IAquaLink local HTTP API.
+type IaqualinkResult struct {
+	BaseURL    string `json:"baseUrl"`
+	Mode       int64  `json:"mode"`
+	MatchedURL string `json:"matchedUrl,omitempty"`
 }
 
 type Result struct {
