@@ -1,0 +1,42 @@
+template: pvhorizon
+products:
+  - brand: PV Horizon
+    description:
+      generic: terrain shading forecast
+requirements:
+  description:
+    en: |
+      Local terrain-aware solar forecast using digital elevation model (DEM) data.
+      On first start, elevation tiles are automatically downloaded from the Copernicus GLO-30 dataset (AWS Open Data, no account required) and cached on disk.
+      No API key or cloud subscription needed — all calculations run locally.
+    de: |
+      Lokale geländebewusste Solarvorhersage basierend auf digitalen Höhenmodellen (DEM).
+      Beim ersten Start werden Höhenkacheln automatisch vom Copernicus GLO-30 Datensatz (AWS Open Data, kein Konto erforderlich) heruntergeladen und lokal gespeichert.
+      Kein API-Schlüssel oder Cloud-Abonnement erforderlich – alle Berechnungen laufen lokal.
+  evcc: ["skiptest"]
+group: solar
+params:
+  - preset: forecast-base
+  - name: radius
+    description:
+      en: Terrain search radius
+      de: Suchradius für Gelände
+    help:
+      en: Radius in metres around the site to scan for terrain obstructions. Larger values are more accurate but require more DEM tiles. Default is 20 km.
+      de: Radius in Metern um den Standort für die Geländeanalyse. Größere Werte sind genauer, erfordern aber mehr Höhendaten-Kacheln. Standard ist 20 km.
+    unit: m
+    type: int
+    default: 20000
+    advanced: true
+  - name: interval
+    default: 1h
+    advanced: true
+render: |
+  type: pvhorizon
+  latitude: {{ .lat }}
+  longitude: {{ .lon }}
+  capacity: {{ mulf .kwp 1000 }}
+  tilt: {{ .dec }}
+  azimuth: {{ mod (add .az 180) 360 }}
+  radius: {{ .radius }}
+  interval: {{ .interval }}

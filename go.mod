@@ -1,6 +1,6 @@
 module github.com/evcc-io/evcc
 
-go 1.26.0
+go 1.26.2
 
 require (
 	dario.cat/mergo v1.0.2
@@ -77,6 +77,7 @@ require (
 	github.com/muka/go-bluetooth v0.0.0-20240701044517-04c4f09c514e
 	github.com/nicholas-fedor/shoutrrr v0.14.3
 	github.com/nicksnyder/go-i18n/v2 v2.6.1
+	github.com/nicomattes/pv-horizon v0.0.0-00010101000000-000000000000
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/philippseith/signalr v0.8.0
 	github.com/prometheus-community/pro-bing v0.8.0
@@ -268,3 +269,5 @@ replace github.com/grid-x/modbus => github.com/evcc-io/modbus v0.0.0-20250501165
 replace github.com/lorenzodonini/ocpp-go => github.com/evcc-io/ocpp-go v0.0.0-20251212212612-b7f92ee0443b
 
 replace go.yaml.in/yaml/v4 => go.yaml.in/yaml/v4 v4.0.0-rc.3
+
+replace github.com/nicomattes/pv-horizon => ../pv-horizon
