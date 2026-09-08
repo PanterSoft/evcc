@@ -20,11 +20,13 @@ package charger
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	iaqualink "github.com/PanterSoft/iAqualink_go"
 	"github.com/PanterSoft/iAqualink_go/heatpump"
 	"github.com/evcc-io/evcc/api"
+	"github.com/evcc-io/evcc/api/implement"
 	"github.com/evcc-io/evcc/util"
 	"github.com/samber/lo"
 )
@@ -110,8 +112,39 @@ func NewIAquaLinkFromConfig(ctx context.Context, other map[string]any) (api.Char
 	c.SgReady, err = NewSgReady(ctx, &cc.embed, func(mode int64) error {
 		return c.setMode(ctx, mode)
 	}, c.getMode, nil)
+	if err != nil {
+		return nil, err
+	}
 
-	return c, err
+	// water temperature and the device's own setpoint, both from the cached state
+	implement.Has(c, implement.Battery(c.temp))
+	implement.Has(c, implement.SocLimiter(c.limitTemp))
+
+	return c, nil
+}
+
+// temp implements the api.Battery interface and returns the water temperature
+func (c *IAquaLink) temp() (float64, error) {
+	state, err := c.state()
+	if err != nil {
+		return 0, err
+	}
+
+	if !state.WaterOK {
+		return 0, api.ErrNotAvailable
+	}
+
+	return state.WaterTemp, nil
+}
+
+// limitTemp implements the api.SocLimiter interface and returns the device's target temperature
+func (c *IAquaLink) limitTemp() (int64, error) {
+	state, err := c.state()
+	if err != nil {
+		return 0, err
+	}
+
+	return int64(math.Round(state.TargetTemp)), nil
 }
 
 // sgReadyModes maps evcc SG Ready modes to iAqualink heat pump modes.
