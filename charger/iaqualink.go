@@ -120,14 +120,12 @@ func NewIAquaLinkFromConfig(ctx context.Context, other map[string]any) (api.Char
 		}, cc.Cache),
 	}
 
-	state, err := c.state()
-	if err != nil {
+	// fail fast if the device does not answer
+	if _, err := c.state(); err != nil {
 		return nil, err
 	}
 
-	if !state.Power {
-		log.WARN.Println("device is switched off - evcc controls the operating mode only and will not switch it on")
-	}
+	log.DEBUG.Printf("using device %s (%s)", dev.SerialNumber, dev.Name)
 
 	// the mode getter is nil on purpose: the device mode is derived from the offered
 	// power, so reading it back would not round-trip to the requested SG Ready mode
@@ -174,8 +172,8 @@ func (c *IAquaLink) setMaxPower(ctx context.Context, power int64) error {
 // the pump at the efficiency its energy budget allows.
 //
 // Only the enabled state modulates: SG Ready normal leaves the unit in its own adaptive
-// smart program and dim (§14a) drops it to eco. The unit is never switched off, as
-// power-cycling short-cycles its compressor.
+// smart program and dim (§14a) drops it to eco. Powering the unit down is tied to the
+// charge mode instead, see off().
 func (c *IAquaLink) deviceMode() heatpump.Mode {
 	switch {
 	case c.sgMode == Dim:
