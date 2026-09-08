@@ -36,6 +36,8 @@ const (
 	ModbusParamHost     = "host"
 	ModbusParamPort     = "port"
 	ModbusParamRTU      = "rtu"
+	ModbusParamDelay    = "delay"
+	ModbusParamTimeout  = "timeout"
 )
 
 const (
@@ -51,6 +53,7 @@ var (
 	ModbusParams = []string{
 		ModbusParamId, ModbusParamDevice, ModbusParamBaudrate, ModbusParamComset,
 		ModbusParamURI, ModbusParamHost, ModbusParamPort, ModbusParamRTU,
+		ModbusParamDelay, ModbusParamTimeout,
 	}
 
 	ModbusConnectionTypes = []string{
@@ -59,23 +62,11 @@ var (
 )
 
 const (
-	CapabilityISO151182      = "iso151182"       // ISO 15118-2 support
-	CapabilityMilliAmps      = "mA"              // Granular current control support
-	CapabilityRFID           = "rfid"            // RFID support
-	Capability1p3p           = "1p3p"            // 1P/3P phase switching support
-	CapabilityBatteryControl = "battery-control" // Battery control support
-)
-
-var ValidCapabilities = []string{CapabilityISO151182, CapabilityMilliAmps, CapabilityRFID, Capability1p3p, CapabilityBatteryControl}
-
-const (
-	RequirementEEBUS       = "eebus"       // EEBUS Setup is required
-	RequirementMQTT        = "mqtt"        // MQTT Setup is required
 	RequirementSponsorship = "sponsorship" // Sponsorship is required
 	RequirementSkipTest    = "skiptest"    // Template should be rendered but not tested
 )
 
-var ValidRequirements = []string{RequirementEEBUS, RequirementMQTT, RequirementSponsorship, RequirementSkipTest}
+var ValidRequirements = []string{RequirementSponsorship, RequirementSkipTest}
 
 var predefinedTemplateProperties = slices.Concat(
 	[]string{"type", "template", "name"}, ModbusParams, ModbusConnectionTypes,
@@ -190,19 +181,23 @@ type Requirements struct {
 	Description TextLanguage // Description of requirements, e.g. how the device needs to be prepared
 }
 
-// Linked Template
-type LinkedTemplate struct {
-	Template        string
-	Usage           string // usage: "grid", "pv", "battery"
-	Multiple        bool   // if true, multiple instances of this template can be added
-	ExcludeTemplate string // only consider this if no device of the named linked template was added
+// Caveat documents a known device limitation
+type Caveat struct {
+	Description TextLanguage // localized description of the limitation
+	Link        string       `json:",omitempty"` // optional URL with more details
 }
 
-// Dependency defines a condition for when a parameter should be shown
-type Dependency struct {
-	Name  string `json:"name" yaml:"name"`   // name of the parameter to check
-	Check string `json:"check" yaml:"check"` // type of check, e.g. "equal"
-	Value any    `json:"value" yaml:"value"` // value to compare against
+func (c Caveat) MarshalJSON() ([]byte, error) {
+	mu.Lock()
+	custom := struct {
+		Description string `json:",omitempty"`
+		Link        string `json:",omitempty"`
+	}{
+		Description: c.Description.String(encoderLanguage),
+		Link:        c.Link,
+	}
+	mu.Unlock()
+	return json.Marshal(custom)
 }
 
 // Param is a proxy template parameter
@@ -217,33 +212,33 @@ type Dependency struct {
 // 3. defaults.yaml modbus section
 // 4. template
 type Param struct {
-	Name         string       // Param name which is used for assigning defaults properties and referencing in render
-	Description  TextLanguage // language specific titles (presented in UI instead of Name)
-	Help         TextLanguage // cli configuration help
-	Preset       string       `json:"-"`          // Reference a predefined set of params
-	Required     bool         `json:",omitempty"` // cli if the user has to provide a non empty value
-	Mask         bool         `json:",omitempty"` // cli if the value should be masked, e.g. for passwords
-	Private      bool         `json:",omitempty"` // value should be redacted in bug reports, e.g. email, locations, ...
-	Advanced     bool         `json:",omitempty"` // cli if the user does not need to be asked. Requires a "Default" to be defined.
-	Deprecated   bool         `json:",omitempty"` // if the parameter is deprecated and thus should not be presented in the cli or docs
-	Default      string       `json:",omitempty"` // default value if no user value is provided in the configuration
-	Example      string       `json:",omitempty"` // cli example value
-	Value        string       `json:"-"`          // user provided value via cli configuration
-	Values       []string     `json:",omitempty"` // user provided list of values e.g. for Type "list"
-	Unit         string       `json:",omitempty"` // unit of the value, e.g. "kW", "kWh", "A", "V"
-	Usages       []string     `json:",omitempty"` // restrict param to these usage types, e.g. "battery" for home battery capacity
-	Type         ParamType    // string representation of the value type, "string" is default
-	Choice       []string     `json:",omitempty" yaml:",omitempty"` // defines a set of choices, e.g. "grid", "pv", "battery", "charge" for "usage"
-	AllInOne     bool         `json:"-" yaml:"allinone,omitempty"`  // defines if the defined usages can all be present in a single device
-	Dependencies []Dependency `json:",omitempty" yaml:",omitempty"` // conditions for when this parameter should be shown
-	Service      string       `json:",omitempty"`                   // defines a service to provide choices
-	Pattern      *Pattern     `json:",omitempty"`                   // regex pattern and examples for input validation
+	Name        string       // Param name which is used for assigning defaults properties and referencing in render
+	Description TextLanguage // language specific titles (presented in UI instead of Name)
+	Help        TextLanguage // cli configuration help
+	Preset      string       `json:"-"`          // Reference a predefined set of params
+	Required    bool         `json:",omitempty"` // cli if the user has to provide a non empty value
+	Mask        bool         `json:",omitempty"` // cli if the value should be masked, e.g. for passwords
+	Private     bool         `json:",omitempty"` // value should be redacted in bug reports, e.g. email, locations, ...
+	Advanced    bool         `json:",omitempty"` // cli if the user does not need to be asked. Requires a "Default" to be defined.
+	Deprecated  bool         `json:",omitempty"` // if the parameter is deprecated and thus should not be presented in the cli or docs
+	Default     string       `json:",omitempty"` // default value if no user value is provided in the configuration
+	Example     string       `json:",omitempty"` // cli example value
+	Value       string       `json:"-"`          // user provided value via cli configuration
+	Values      []string     `json:",omitempty"` // user provided list of values e.g. for Type "list"
+	Unit        string       `json:",omitempty"` // unit of the value, e.g. "kW", "kWh", "A", "V"
+	Usages      []string     `json:",omitempty"` // restrict param to these usage types, e.g. "battery" for home battery capacity
+	Type        ParamType    // string representation of the value type, "string" is default
+	Choice      []string     `json:",omitempty"` // defines a set of choices, e.g. "grid", "pv", "battery", "charge" for "usage"
+	Service     string       `json:",omitempty"` // defines a service to provide choices
+	Pattern     *Pattern     `json:",omitempty"` // regex pattern and examples for input validation
 
 	// TODO move somewhere else should not be part of the param definition
 	Baudrate int    `json:",omitempty"` // device specific default for modbus RS485 baudrate
 	Comset   string `json:",omitempty"` // device specific default for modbus RS485 comset
 	Port     int    `json:",omitempty"` // device specific default for modbus TCPIP port
 	ID       int    `json:",omitempty"` // device specific default for modbus ID
+	Delay    string `json:",omitempty"` // device specific default for modbus delay
+	Timeout  string `json:",omitempty"` // device specific default for modbus timeout
 }
 
 // DefaultValue returns a default or example value depending on the renderMode
@@ -251,6 +246,9 @@ func (p *Param) DefaultValue(renderMode int) any {
 	// return empty list to allow iterating over in template
 	if p.Type == TypeList {
 		return []string{}
+	}
+	if p.Type == TypeZones {
+		return []any{}
 	}
 
 	if (renderMode == RenderModeDocs || renderMode == RenderModeUnitTest) && p.Default == "" {
@@ -328,8 +326,10 @@ func (p Param) MarshalJSON() ([]byte, error) {
 
 // Product contains naming information about a product a template supports
 type Product struct {
-	Brand       string       // product brand
-	Description TextLanguage `json:",omitempty"` // product name
+	Brand        string       // product brand
+	Description  TextLanguage // product name
+	Capabilities []Capability `json:",omitempty"` // appended to template-level capabilities
+	Link         string       `json:",omitempty"` // integration provider link, overrides template-level link
 }
 
 // Title returns the product title in the given language

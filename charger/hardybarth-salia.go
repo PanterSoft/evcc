@@ -28,6 +28,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/evcc-io/evcc/api"
+	"github.com/evcc-io/evcc/api/implement"
 	"github.com/evcc-io/evcc/charger/echarge"
 	"github.com/evcc-io/evcc/charger/echarge/salia"
 	"github.com/evcc-io/evcc/util"
@@ -42,6 +43,7 @@ import (
 // Salia charger implementation
 type Salia struct {
 	*request.Helper
+	implement.Caps
 	log     *util.Logger
 	uri     string
 	current int64
@@ -52,8 +54,6 @@ type Salia struct {
 func init() {
 	registry.AddCtx("hardybarth-salia", NewSaliaFromConfig)
 }
-
-//go:generate go tool decorate -f decorateSalia -b *Salia -r api.Charger -t api.Meter,api.MeterEnergy,api.PhaseCurrents,api.PhaseSwitcher,api.PhaseGetter
 
 // NewSaliaFromConfig creates a Salia cPH2 charger from generic config
 func NewSaliaFromConfig(ctx context.Context, other map[string]any) (api.Charger, error) {
@@ -83,6 +83,7 @@ func NewSalia(ctx context.Context, uri, user, password string, cache time.Durati
 	wb := &Salia{
 		log:     log,
 		Helper:  request.NewHelper(log),
+		Caps:    implement.New(),
 		uri:     util.DefaultScheme(uri, "http"),
 		current: 6,
 	}
@@ -138,26 +139,18 @@ func NewSalia(ctx context.Context, uri, user, password string, cache time.Durati
 
 	wb.pause(false)
 
-	var (
-		currentPower func() (float64, error)
-		totalEnergy  func() (float64, error)
-		currents     func() (float64, float64, float64, error)
-		phasesG      func() (int, error)
-		phasesS      func(int) error
-	)
-
 	if res.Secc.Port0.Metering.Meter.Available > 0 {
-		currentPower = wb.currentPower
-		totalEnergy = wb.totalEnergy
-		currents = wb.currents
+		implement.Has(wb, implement.Meter(wb.currentPower))
+		implement.Has(wb, implement.MeterEnergy(wb.totalEnergy))
+		implement.Has(wb, implement.PhaseCurrents(wb.currents))
 	}
 
 	if res.Secc.Port0.Salia.PhaseSwitching.Actual > 0 {
-		phasesG = wb.getPhases
-		phasesS = wb.phases1p3p
+		implement.Has(wb, implement.PhaseSwitcher(wb.phases1p3p))
+		implement.Has(wb, implement.PhaseGetter(wb.getPhases))
 	}
 
-	return decorateSalia(wb, currentPower, totalEnergy, currents, phasesS, phasesG), nil
+	return wb, nil
 }
 
 func (wb *Salia) heartbeat(ctx context.Context) {
@@ -286,12 +279,12 @@ func (wb *Salia) currents() (float64, float64, float64, error) {
 	return i.L1.Actual / 1e3, i.L2.Actual / 1e3, i.L3.Actual / 1e3, err
 }
 
-func (wb *Salia) Identify() (string, error) {
+func (wb *Salia) Identify() ([]string, error) {
 	res, err := wb.apiG.Get()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return res.Secc.Port0.RFID.AuthorizationRequest.Key, nil
+	return []string{res.Secc.Port0.RFID.AuthorizationRequest.Key}, nil
 }
 
 func (wb *Salia) getPhases() (int, error) {

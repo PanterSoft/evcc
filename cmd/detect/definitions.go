@@ -39,7 +39,6 @@ const (
 	taskFroniusWeb   = "fronius-web"
 	taskTasmota      = "tasmota"
 	taskShelly       = "shelly"
-	taskIAquaLink    = "iaqualink"
 	// taskTPLink       = "tplink"
 )
 
@@ -263,7 +262,7 @@ func init() {
 	// 	ID:      taskTPLink,
 	// 	Type:    tasks.Http,
 	// 	Depends: TaskHttp,
-	// 	Config: map[string]interface{}{
+	// 	Config: map[string]any{
 	// 		"ResponseHeader": map[string]string{
 	// 			"Server": "TP-LINK Smart Plug",
 	// 		},
@@ -288,12 +287,5 @@ func init() {
 			"path": "/shelly",
 			"jq":   ".type",
 		},
-	})
-
-	taskList.Add(tasks.Task{
-		ID:      taskIAquaLink,
-		Type:    tasks.Iaqualink,
-		Depends: TaskHttp,
-		Config:  map[string]any{},
 	})
 }

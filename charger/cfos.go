@@ -1,11 +1,30 @@
 package charger
 
+// LICENSE
+
+// Copyright (c) evcc.io (andig, naltatis, premultiply)
+
+// This module is NOT covered by the MIT license. All rights reserved.
+
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/evcc-io/evcc/api"
+	"github.com/evcc-io/evcc/api/implement"
 	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/modbus"
 	"github.com/evcc-io/evcc/util/sponsor"
@@ -31,14 +50,13 @@ const (
 // It uses Modbus TCP to communicate at modbus client id 1 and power meters at id 2 and 3.
 // https://www.cfos-emobility.de/en-gb/cfos-power-brain/modbus-registers.htm
 type CfosPowerBrain struct {
+	implement.Caps
 	conn *modbus.Connection
 }
 
 func init() {
 	registry.AddCtx("cfos", NewCfosPowerBrainFromConfig)
 }
-
-//go:generate go tool decorate -f decorateCfos -b *CfosPowerBrain -r api.Charger -t api.Meter,api.MeterEnergy,api.PhaseCurrents,api.PhaseSwitcher
 
 // NewCfosPowerBrainFromConfig creates a cFos charger from generic config
 func NewCfosPowerBrainFromConfig(ctx context.Context, other map[string]any) (api.Charger, error) {
@@ -50,14 +68,14 @@ func NewCfosPowerBrainFromConfig(ctx context.Context, other map[string]any) (api
 		return nil, err
 	}
 
-	return NewCfosPowerBrain(ctx, cc.URI, cc.ID)
+	return NewCfosPowerBrain(ctx, cc)
 }
 
 // NewCfosPowerBrain creates a cFos charger
-func NewCfosPowerBrain(ctx context.Context, uri string, id uint8) (api.Charger, error) {
-	uri = util.DefaultPort(uri, 4701)
+func NewCfosPowerBrain(ctx context.Context, settings modbus.TcpSettings) (api.Charger, error) {
+	settings.URI = util.DefaultPort(settings.URI, 4701)
 
-	conn, err := modbus.NewConnection(ctx, uri, "", "", 0, modbus.Tcp, id)
+	conn, err := settings.Connection(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -70,30 +88,26 @@ func NewCfosPowerBrain(ctx context.Context, uri string, id uint8) (api.Charger, 
 	conn.Logger(log.TRACE)
 
 	wb := &CfosPowerBrain{
+		Caps: implement.New(),
 		conn: conn,
 	}
 
 	// decorate meter
-	var (
-		power, energy func() (float64, error)
-		currents      func() (float64, float64, float64, error)
-	)
 	if b, err := wb.conn.ReadHoldingRegisters(cfosRegMeter, 1); err == nil && binary.BigEndian.Uint16(b) != 0 {
-		power = wb.currentPower
-		energy = wb.totalEnergy
+		implement.Has(wb, implement.Meter(wb.currentPower))
+		implement.Has(wb, implement.MeterEnergy(wb.totalEnergy))
 
 		if b, err := wb.conn.ReadHoldingRegisters(cfosRegMeterFlags, 1); err == nil && binary.BigEndian.Uint16(b) != 0 {
-			currents = wb.currents
+			implement.Has(wb, implement.PhaseCurrents(wb.currents))
 		}
 	}
 
 	// decorate phases
-	var phases1p3p func(int) error
 	if b, err := wb.conn.ReadHoldingRegisters(cfosRegSolarEnabled, 1); err == nil && binary.BigEndian.Uint16(b)&(1<<8) != 0 {
-		phases1p3p = wb.phases1p3p
+		implement.Has(wb, implement.PhaseSwitcher(wb.phases1p3p))
 	}
 
-	return decorateCfos(wb, power, energy, currents, phases1p3p), nil
+	return wb, nil
 }
 
 // Status implements the api.Charger interface
@@ -110,6 +124,8 @@ func (wb *CfosPowerBrain) Status() (api.ChargeStatus, error) {
 		return api.StatusB, nil
 	case 2: // laden
 		return api.StatusC, nil
+	case 5: // Übertemperatur
+		return api.StatusNone, errors.New("temperature exceeded")
 	default:
 		return api.StatusNone, fmt.Errorf("invalid status: %d", b[1])
 	}
@@ -226,11 +242,11 @@ func (wb *CfosPowerBrain) WakeUp() error {
 var _ api.Identifier = (*CfosPowerBrain)(nil)
 
 // Identify implements the api.Identifier interface
-func (wb *CfosPowerBrain) Identify() (string, error) {
+func (wb *CfosPowerBrain) Identify() ([]string, error) {
 	b, err := wb.conn.ReadHoldingRegisters(cfosRegLastRfid, 15)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return bytesAsString(b), nil
+	return []string{bytesAsString(b)}, nil
 }

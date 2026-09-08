@@ -131,7 +131,7 @@ func (m *Influx) writeComplexPoint(writer pointWriter, key string, val any, tags
 
 		switch typ := reflect.TypeOf(val); {
 		// pointer
-		case typ.Kind() == reflect.Ptr:
+		case typ.Kind() == reflect.Pointer:
 			if val := reflect.ValueOf(val); !val.IsNil() {
 				m.writeComplexPoint(writer, key, reflect.Indirect(val).Interface(), tags)
 			}
@@ -185,6 +185,10 @@ func (m *Influx) Run(site site.API, in <-chan util.Param) {
 		tags := make(map[string]string)
 		if param.Loadpoint != nil {
 			lp := site.Loadpoints()[*param.Loadpoint]
+			if lp == nil {
+				// disabled loadpoint- placeholder params only
+				continue
+			}
 
 			tags["loadpoint"] = lp.GetTitle()
 			if v := lp.GetVehicle(); v != nil {

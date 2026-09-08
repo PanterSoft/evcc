@@ -26,7 +26,9 @@ import (
 	"time"
 
 	"github.com/evcc-io/evcc/api"
+	"github.com/evcc-io/evcc/api/implement"
 	"github.com/evcc-io/evcc/util"
+	"github.com/evcc-io/evcc/util/oauth"
 	"github.com/evcc-io/evcc/util/request"
 	"github.com/evcc-io/evcc/util/sponsor"
 	"github.com/evcc-io/evcc/vehicle/tronity"
@@ -37,6 +39,7 @@ import (
 type Tronity struct {
 	*embed
 	*request.Helper
+	implement.Caps
 	log   *util.Logger
 	oc    *oauth2.Config
 	vid   string
@@ -47,14 +50,12 @@ func init() {
 	registry.Add("tronity", NewTronityFromConfig)
 }
 
-//go:generate go tool decorate -f decorateTronity -b *Tronity -r api.Vehicle -t api.ChargeState,api.VehicleOdometer,api.ChargeController
-
 // NewTronityFromConfig creates a new vehicle
 func NewTronityFromConfig(other map[string]any) (api.Vehicle, error) {
 	cc := struct {
 		embed       `mapstructure:",squash"`
-		Credentials ClientCredentials
-		Tokens      Tokens
+		Credentials oauth.ClientCredentials
+		Tokens      oauth.Tokens
 		VIN         string
 		Cache       time.Duration
 	}{
@@ -85,6 +86,7 @@ func NewTronityFromConfig(other map[string]any) (api.Vehicle, error) {
 		log:    log,
 		embed:  &cc.embed,
 		Helper: request.NewHelper(log),
+		Caps:   implement.New(),
 		oc:     oc,
 	}
 
@@ -120,22 +122,19 @@ func NewTronityFromConfig(other map[string]any) (api.Vehicle, error) {
 	v.vid = vehicle.ID
 	v.bulkG = util.Cached(v.bulk, cc.Cache)
 
-	var status func() (api.ChargeStatus, error)
 	if slices.Contains(vehicle.Scopes, tronity.ReadCharge) {
-		status = v.status
+		implement.Has(v, implement.ChargeState(v.status))
 	}
 
-	var odometer func() (float64, error)
 	if slices.Contains(vehicle.Scopes, tronity.ReadOdometer) {
-		odometer = v.odometer
+		implement.Has(v, implement.VehicleOdometer(v.odometer))
 	}
 
-	var chargeEnable func(bool) error
 	if slices.Contains(vehicle.Scopes, tronity.WriteChargeStartStop) {
-		chargeEnable = v.chargeEnable
+		implement.Has(v, implement.ChargeController(v.chargeEnable))
 	}
 
-	return decorateTronity(v, status, odometer, chargeEnable), nil
+	return v, nil
 }
 
 // vehicles implements the vehicles api

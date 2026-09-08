@@ -251,8 +251,8 @@ func TestSEMPCharger(t *testing.T) {
 		planningResponse: mockPlanningRequestResponse,
 		infoResponse:     mockDeviceInfoResponse,
 	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
+	server := httptest.NewTestServer(t, handler)
+	server.Start()
 
 	ctx := t.Context()
 
@@ -281,7 +281,7 @@ func TestSEMPCharger(t *testing.T) {
 		handler.requestCount = 0
 		// Reset cache to force new request
 		wb.(*SEMP).deviceG.Reset()
-		meter, ok := wb.(api.Meter)
+		meter, ok := api.Cap[api.Meter](wb)
 		require.True(t, ok)
 		power, err := meter.CurrentPower()
 		require.NoError(t, err)
@@ -318,8 +318,8 @@ func TestSEMPChargerOff(t *testing.T) {
 		planningResponse: mockEmptyPlanningRequestResponse,
 		infoResponse:     mockDeviceInfoResponse,
 	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
+	server := httptest.NewTestServer(t, handler)
+	server.Start()
 
 	ctx := t.Context()
 
@@ -339,7 +339,7 @@ func TestSEMPChargerOff(t *testing.T) {
 	})
 
 	t.Run("CurrentPowerZero", func(t *testing.T) {
-		meter, ok := wb.(api.Meter)
+		meter, ok := api.Cap[api.Meter](wb)
 		require.True(t, ok)
 		power, err := meter.CurrentPower()
 		require.NoError(t, err)
@@ -353,8 +353,8 @@ func TestSEMPChargerDeviceNotFound(t *testing.T) {
 		planningResponse: mockPlanningRequestResponse,
 		infoResponse:     mockDeviceInfoResponse,
 	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
+	server := httptest.NewTestServer(t, handler)
+	server.Start()
 
 	// NewSEMP now calls Enabled() which will fail if device is not found
 	_, err := NewSEMP(t.Context(), server.URL+"/semp", "F-12345678-ABCDEF123456-00", time.Second)
@@ -368,8 +368,8 @@ func TestSEMPChargerReady(t *testing.T) {
 		planningResponse: mockPlanningRequestResponse,
 		infoResponse:     mockDeviceInfoResponse,
 	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
+	server := httptest.NewTestServer(t, handler)
+	server.Start()
 
 	ctx := t.Context()
 
@@ -396,8 +396,8 @@ func TestSEMPChargerPhases1p3p(t *testing.T) {
 		planningResponse: mockPlanningRequestResponse,
 		infoResponse:     mockDeviceInfoPhases1p3pResponse,
 	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
+	server := httptest.NewTestServer(t, handler)
+	server.Start()
 
 	ctx := t.Context()
 
@@ -405,7 +405,7 @@ func TestSEMPChargerPhases1p3p(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check if the charger supports phase switching
-	phaseSwitcher, ok := wb.(api.PhaseSwitcher)
+	phaseSwitcher, ok := api.Cap[api.PhaseSwitcher](wb)
 	require.True(t, ok, "Expected charger to support phase switching")
 
 	t.Run("SwitchTo1Phase", func(t *testing.T) {
@@ -440,8 +440,8 @@ func TestSEMPChargerChargedEnergy(t *testing.T) {
 		infoResponse:       mockDeviceInfoResponse,
 		parametersResponse: mockParametersResponse,
 	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
+	server := httptest.NewTestServer(t, handler)
+	server.Start()
 
 	ctx := t.Context()
 
@@ -449,7 +449,7 @@ func TestSEMPChargerChargedEnergy(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("ChargedEnergy", func(t *testing.T) {
-		chargeRater, ok := wb.(api.ChargeRater)
+		chargeRater, ok := api.Cap[api.ChargeRater](wb)
 		require.True(t, ok)
 		energy, err := chargeRater.ChargedEnergy()
 		require.NoError(t, err)
@@ -465,14 +465,14 @@ func TestSEMPChargerChargedEnergy(t *testing.T) {
 			infoResponse:     mockDeviceInfoResponse,
 			// parametersResponse left empty
 		}
-		server2 := httptest.NewServer(handler2)
-		defer server2.Close()
+		server2 := httptest.NewTestServer(t, handler2)
+		server2.Start()
 
 		wb2, err := NewSEMP(t.Context(), server2.URL+"/semp", "F-12345678-ABCDEF123456-00", time.Second)
 		require.NoError(t, err)
 
 		// ChargeRater interface should NOT be available when parameters are not supported
-		_, ok := wb2.(api.ChargeRater)
+		_, ok := api.Cap[api.ChargeRater](wb2)
 		assert.False(t, ok, "ChargeRater should not be available when device doesn't support parameters")
 	})
 }
@@ -483,8 +483,8 @@ func TestSEMPChargerAutoDetectDeviceID(t *testing.T) {
 		planningResponse: mockPlanningRequestResponse,
 		infoResponse:     mockDeviceInfoResponse,
 	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
+	server := httptest.NewTestServer(t, handler)
+	server.Start()
 
 	ctx := t.Context()
 

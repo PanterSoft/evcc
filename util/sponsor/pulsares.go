@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-func readSerial() (string, error) {
+func checkPulsares() (string, error) {
 	f, err := os.OpenFile("/dev/PulsaresSerial", os.O_RDWR, 0o644)
 	if err != nil {
 		return "", nil
@@ -38,7 +38,7 @@ func readSerial() (string, error) {
 		_ = f.Close()
 	})
 
-	var token string
+	var token strings.Builder
 	b := make([]byte, 512)
 
 	for {
@@ -47,9 +47,9 @@ func readSerial() (string, error) {
 			return "", nil
 		}
 
-		token += string(b[:n])
+		token.WriteString(string(b[:n]))
 
-		if token, ok := strings.CutSuffix(token, "\x04"); ok {
+		if token, ok := strings.CutSuffix(token.String(), "\x04"); ok {
 			return token, nil
 		}
 	}

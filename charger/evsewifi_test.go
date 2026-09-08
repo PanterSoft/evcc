@@ -10,10 +10,10 @@ import (
 )
 
 func TestEvseWifi(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintln(w, `{"list":[{"useMeter":true, "alwaysActive":true}]}`)
 	}))
-	defer ts.Close()
+	ts.Start()
 
 	wb, err := NewEVSEWifiFromConfig(map[string]any{
 		"uri": ts.URL,
@@ -28,28 +28,28 @@ func TestEvseWifi(t *testing.T) {
 		t.Error(err)
 	}
 
-	if _, ok := wb.(api.Meter); !ok {
+	if _, ok := api.Cap[api.Meter](wb); !ok {
 		t.Error("missing api.Meter")
 	}
 
-	if _, ok := wb.(api.MeterEnergy); !ok {
+	if _, ok := api.Cap[api.MeterEnergy](wb); !ok {
 		t.Error("missing api.MeterEnergy")
 	}
 
-	if _, ok := wb.(api.PhaseCurrents); !ok {
+	if _, ok := api.Cap[api.PhaseCurrents](wb); !ok {
 		t.Error("missing api.PhaseCurrents")
 	}
 
-	if _, ok := wb.(api.PhaseVoltages); !ok {
+	if _, ok := api.Cap[api.PhaseVoltages](wb); !ok {
 		t.Error("missing api.PhaseVoltages")
 	}
 }
 
 func TestEvseWifiEx(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintln(w, `{"list":[{"actualCurrentMA":600, "alwaysActive":true}]}`)
 	}))
-	defer ts.Close()
+	ts.Start()
 
 	wb, err := NewEVSEWifiFromConfig(map[string]any{
 		"uri": ts.URL,
@@ -58,7 +58,7 @@ func TestEvseWifiEx(t *testing.T) {
 		t.Error(err)
 	}
 
-	if _, ok := wb.(api.ChargerEx); !ok {
+	if _, ok := api.Cap[api.ChargerEx](wb); !ok {
 		t.Error("missing api.ChargerEx")
 	}
 }

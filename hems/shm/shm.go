@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/core/loadpoint"
 	"github.com/evcc-io/evcc/core/site"
 	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/machine"
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/koron/go-ssdp"
 )
@@ -44,6 +44,7 @@ type Config struct {
 	AllowControl_ bool   `json:"allowControl,omitempty"` // deprecated
 	VendorId      string `json:"vendorId"`
 	DeviceId      string `json:"deviceId"`
+	DeviceSerial  string `json:"deviceSerial"`
 }
 
 // NewFromConfig creates a new SEMP instance from configuration and starts it
@@ -55,12 +56,28 @@ func NewFromConfig(cfg Config, hostUri string, site site.API, addr string, route
 		return fmt.Errorf("invalid vendor id: %v. Must be 8 characters HEX string", vendorId)
 	}
 
-	uid, err := uuid.NewUUID()
-	if err != nil {
-		return err
+	uid := uuid.New()
+
+	// Only if DeviceSerial is explicitly configured: validate it and patch the
+	// UUID node (last 6 bytes) to ensure the UDN and DeviceSerial are stable across restarts.
+	// Ideally we'd have used the same machine-id approach as UniqueDeviceID does, but that
+	// would break existing installations that relied on the node ID of the UUID which was set to the MAC address
+	// of the host. See https://github.com/evcc-io/evcc/issues/28126 for context.
+	if cfg.DeviceSerial != "" {
+		b, err := hex.DecodeString(cfg.DeviceSerial)
+		if err != nil {
+			return fmt.Errorf("device serial: %w", err)
+		}
+		if len(b) != 6 {
+			return fmt.Errorf("invalid device serial: %v. Must be 12 characters HEX string", cfg.DeviceSerial)
+		}
+
+		// replaces the node (last 6 bytes) of a UUID with the given bytes.
+		copy(uid[10:], b)
 	}
 
 	var did []byte
+	var err error
 	if cfg.DeviceId == "" {
 		if did, err = UniqueDeviceID(); err != nil {
 			return fmt.Errorf("creating device id: %w", err)
@@ -195,7 +212,7 @@ func (s *SEMP) deviceInfoQuery(w http.ResponseWriter, r *http.Request) {
 	if did == "" {
 		msg.DeviceInfo = append(msg.DeviceInfo, s.allDeviceInfo()...)
 	} else {
-		for id, lp := range s.site.Loadpoints() {
+		for id, lp := range s.site.ActiveLoadpoints() {
 			if did != s.deviceID(id) {
 				continue
 			}
@@ -220,7 +237,7 @@ func (s *SEMP) deviceStatusQuery(w http.ResponseWriter, r *http.Request) {
 	if did == "" {
 		msg.DeviceStatus = append(msg.DeviceStatus, s.allDeviceStatus()...)
 	} else {
-		for id, lp := range s.site.Loadpoints() {
+		for id, lp := range s.site.ActiveLoadpoints() {
 			if did != s.deviceID(id) {
 				continue
 			}
@@ -245,7 +262,7 @@ func (s *SEMP) devicePlanningQuery(w http.ResponseWriter, r *http.Request) {
 	if did == "" {
 		msg.PlanningRequest = append(msg.PlanningRequest, s.allPlanningRequest()...)
 	} else {
-		for id, lp := range s.site.Loadpoints() {
+		for id, lp := range s.site.ActiveLoadpoints() {
 			if did != s.deviceID(id) {
 				continue
 			}
@@ -320,7 +337,7 @@ func (s *SEMP) deviceInfo(id int, lp loadpoint.API) DeviceInfo {
 }
 
 func (s *SEMP) allDeviceInfo() (res []DeviceInfo) {
-	for id, lp := range s.site.Loadpoints() {
+	for id, lp := range s.site.ActiveLoadpoints() {
 		res = append(res, s.deviceInfo(id, lp))
 	}
 
@@ -351,7 +368,7 @@ func (s *SEMP) deviceStatus(id int, lp loadpoint.API) DeviceStatus {
 }
 
 func (s *SEMP) allDeviceStatus() (res []DeviceStatus) {
-	for id, lp := range s.site.Loadpoints() {
+	for id, lp := range s.site.ActiveLoadpoints() {
 		res = append(res, s.deviceStatus(id, lp))
 	}
 
@@ -366,7 +383,7 @@ func (s *SEMP) planningRequest(id int, lp loadpoint.API) (res PlanningRequest) {
 	// remaining max demand duration in seconds
 	chargeRemainingDuration := lp.GetRemainingDuration()
 	latestEnd := int(chargeRemainingDuration / time.Second)
-	if mode == api.ModeMinPV || mode == api.ModePV || latestEnd <= 0 {
+	if mode == api.ModeSmart || latestEnd <= 0 {
 		latestEnd = 24 * 3600
 	}
 
@@ -380,7 +397,7 @@ func (s *SEMP) planningRequest(id int, lp loadpoint.API) (res PlanningRequest) {
 	}
 
 	minEnergy := maxEnergy
-	if mode == api.ModePV {
+	if loadpoint.SurplusFlexible(lp) {
 		minEnergy = 0
 	}
 
@@ -408,7 +425,7 @@ func (s *SEMP) planningRequest(id int, lp loadpoint.API) (res PlanningRequest) {
 }
 
 func (s *SEMP) allPlanningRequest() (res []PlanningRequest) {
-	for id, lp := range s.site.Loadpoints() {
+	for id, lp := range s.site.ActiveLoadpoints() {
 		if pr := s.planningRequest(id, lp); len(pr.Timeframe) > 0 {
 			res = append(res, pr)
 		}

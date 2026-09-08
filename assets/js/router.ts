@@ -13,6 +13,8 @@ import {
   isConfigured,
 } from "./components/Auth/auth";
 import { initConfigModal } from "./configModal";
+import { isMobileWidth } from "./mixins/breakpoint";
+import { hapticFeedback } from "./utils/haptic";
 import type { VueI18nInstance } from "vue-i18n";
 
 function hideAllModals() {
@@ -62,6 +64,25 @@ export default function setupRouter(i18n: VueI18nInstance) {
   const router = createRouter({
     history: createWebHashHistory(),
     stringifyQuery,
+    scrollBehavior(to, from) {
+      if (to.hash) {
+        // config section hashes open a detail panel on small screens, no scrolling
+        if (to.path === "/config" && isMobileWidth()) {
+          return false;
+        }
+        return new Promise((resolve) => {
+          const check = () => {
+            if (document.querySelector(to.hash)) {
+              setTimeout(() => resolve({ el: to.hash, behavior: "smooth" }), 200);
+            } else {
+              requestAnimationFrame(check);
+            }
+          };
+          check();
+        });
+      }
+      return to.path !== from.path ? { top: 0, behavior: "instant" } : false;
+    },
     routes: [
       {
         path: "/",
@@ -87,16 +108,34 @@ export default function setupRouter(i18n: VueI18nInstance) {
           return {
             month: month ? parseInt(month as string, 10) : undefined,
             year: year ? parseInt(year as string, 10) : undefined,
-            period,
-            loadpointFilter: loadpoint,
-            vehicleFilter: vehicle,
+            period: period ?? undefined,
+            loadpointFilter: loadpoint ?? undefined,
+            vehicleFilter: vehicle ?? undefined,
           };
         },
       },
       {
-        path: "/energy",
-        component: () => import("./views/Energy.vue"),
+        path: "/forecast",
+        component: () => import("./views/Forecast.vue"),
         props: true,
+      },
+      {
+        path: "/battery",
+        component: () => import("./views/Battery.vue"),
+        props: true,
+      },
+      {
+        path: "/history",
+        component: () => import("./views/History.vue"),
+        props: (route) => {
+          const { day, month, year, period } = route.query;
+          return {
+            day: day ? parseInt(day as string, 10) : undefined,
+            month: month ? parseInt(month as string, 10) : undefined,
+            year: year ? parseInt(year as string, 10) : undefined,
+            period: period ?? undefined,
+          };
+        },
       },
       {
         path: "/optimize",
@@ -131,6 +170,7 @@ export default function setupRouter(i18n: VueI18nInstance) {
     // Only hide modals when the actual route path changes, not query parameters
     if (to.path !== from.path) {
       hideAllModals();
+      hapticFeedback();
     }
   });
   initConfigModal(router);

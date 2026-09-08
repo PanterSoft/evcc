@@ -1,4 +1,5 @@
 template: electricitymaps-free
+link: https://app.electricitymaps.com/home-assistant
 products:
   - brand: Electricity Maps
     description:
@@ -18,8 +19,8 @@ params:
       generic: Zone
     example: "DE"
     help:
-      de: "siehe https://api.electricitymap.org/v3/zones"
-      en: "see https://api.electricitymap.org/v3/zones"
+      de: "siehe [api.electricitymap.org](https://api.electricitymap.org/v3/zones)"
+      en: "see [api.electricitymap.org](https://api.electricitymap.org/v3/zones)"
 render: |
   type: custom
   price:

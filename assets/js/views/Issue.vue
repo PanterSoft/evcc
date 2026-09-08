@@ -8,7 +8,7 @@
 				</div>
 
 				<!-- Help Type Selection -->
-				<div class="mb-5">
+				<div v-if="!emailMode" class="mb-5">
 					<h5 class="mb-3">{{ $t("issue.helpType.title") }}</h5>
 					<div class="row g-3">
 						<div class="col-12 col-md-6">
@@ -60,14 +60,14 @@
 						</h4>
 					</div>
 
-					<p class="text-muted mb-4">
+					<p v-if="!emailMode" class="text-muted mb-4">
 						🇬🇧 Please write your issue in English so everyone can participate.
 					</p>
 
 					<!-- Two Column Layout -->
 					<div class="row mb-5 g-5">
 						<!-- Left Column: Form Fields -->
-						<div class="col-12 col-lg-6">
+						<div class="col-12 col-lg-6 pe-lg-5">
 							<div class="mb-4">
 								<label for="issueTitle" class="form-label">
 									{{ $t("issue.issueTitle") }} *
@@ -78,6 +78,7 @@
 									type="text"
 									class="form-control"
 									placeholder="Brief description of the problem"
+									:maxlength="titleMaxLength"
 									required
 								/>
 							</div>
@@ -89,12 +90,18 @@
 									id="issueDescription"
 									v-model="issue.description"
 									class="form-control"
-									rows="6"
+									:rows="emailMode ? 12 : 6"
 									placeholder="Describe what you expected to happen and what actually happened..."
+									:maxlength="descriptionMaxLength"
 									required
 								></textarea>
+								<div v-if="descriptionMaxLength" class="text-end">
+									<small class="text-muted">
+										{{ issue.description.length }} / {{ descriptionMaxLength }}
+									</small>
+								</div>
 							</div>
-							<div class="mb-4">
+							<div v-if="!emailMode" class="mb-4">
 								<label for="stepsToReproduce" class="form-label">
 									{{ $t("issue.stepsToReproduce") }} *
 								</label>
@@ -149,10 +156,16 @@
 							<div class="text-end">
 								<small class="text-muted">* required</small>
 							</div>
+							<div v-if="emailMode" class="d-flex justify-content-end mt-4">
+								<button type="submit" class="btn btn-primary">
+									{{ buttonText }}
+								</button>
+							</div>
 						</div>
 
 						<!-- Right Column: Toggleable Sections -->
-						<div class="col-12 col-lg-6">
+						<div class="col-12 col-lg-6 ps-lg-5">
+							<hr class="d-lg-none mt-0 mb-5" />
 							<div class="mb-4">
 								<h5>{{ $t("issue.additional.title") }}</h5>
 								<p class="text-muted small">
@@ -249,7 +262,7 @@
 												<input
 													v-model.number="logCount"
 													type="number"
-													class="form-control text-end log-count-input"
+													class="form-control text-end"
 													min="0"
 													step="25"
 												/>
@@ -289,11 +302,24 @@
 									</p>
 								</template>
 							</IssueAdditionalItem>
+
+							<div v-if="emailMode" class="mt-4">
+								<p class="text-muted small">{{ $t("issue.downloadHint") }}</p>
+								<div class="d-flex justify-content-end">
+									<button
+										type="button"
+										class="btn btn-outline-primary"
+										@click="downloadDebugFile"
+									>
+										{{ $t("issue.downloadButton") }}
+									</button>
+								</div>
+							</div>
 						</div>
 					</div>
 
 					<!-- Essential Section Actions -->
-					<div class="d-flex justify-content-end gap-3 mb-5">
+					<div v-if="!emailMode" class="d-flex justify-content-end gap-3 mb-5">
 						<button type="submit" class="btn" :class="buttonClass">
 							{{ buttonText }}
 						</button>
@@ -304,6 +330,7 @@
 
 		<!-- Issue Summary Modal -->
 		<SummaryModal
+			v-if="!emailMode"
 			:help-type="helpType"
 			:button-class="buttonClass"
 			:issue-data="issueData"
@@ -324,20 +351,25 @@ import api from "@/api";
 import store from "@/store";
 import { LOG_LEVELS, DEFAULT_LOG_LEVEL } from "@/utils/log";
 import { formatJson } from "@/components/Issue/format";
+import {
+	generateMailtoUrl,
+	generateDebugFile,
+	MAX_MAIL_TITLE_LENGTH,
+	MAX_MAIL_DESCRIPTION_LENGTH,
+} from "@/components/Issue/template";
 import type { HelpType, IssueData } from "@/components/Issue/types";
 import type { State } from "@/types/evcc";
 
 // Keys that should be expanded (1-level expansion for arrays and objects)
 const EXPAND_KEYS = [
 	"battery",
+	"charger",
 	"forecast",
 	"loadpoints",
-	"pv",
-	"vehicles",
-	"statistics",
-	"charger",
-	"site",
+	"messenger",
 	"meter",
+	"pv",
+	"tariff",
 	"vehicle",
 ];
 
@@ -384,7 +416,22 @@ export default defineComponent({
 			logAvailableAreas: [] as string[],
 		};
 	},
+	head() {
+		return { title: this.$t("issue.title") };
+	},
 	computed: {
+		customEmail(): string {
+			return window.evcc?.customEmail ?? "";
+		},
+		emailMode(): boolean {
+			return !!this.customEmail;
+		},
+		titleMaxLength(): number | undefined {
+			return this.emailMode ? MAX_MAIL_TITLE_LENGTH : undefined;
+		},
+		descriptionMaxLength(): number | undefined {
+			return this.emailMode ? MAX_MAIL_DESCRIPTION_LENGTH : undefined;
+		},
 		versionString(): string {
 			return `v${store.state.version || ""}`;
 		},
@@ -461,7 +508,11 @@ export default defineComponent({
 	methods: {
 		// Type-dependent translation helper
 		$tt(key: string): string {
-			const suffix = this.helpType === "discussion" ? "Discussion" : "Issue";
+			const suffix = this.emailMode
+				? "Email"
+				: this.helpType === "discussion"
+					? "Discussion"
+					: "Issue";
 			return this.$t(`${key}${suffix}`);
 		},
 
@@ -494,7 +545,9 @@ export default defineComponent({
 				const deviceEndpoints = [
 					"config/loadpoints",
 					"config/devices/charger",
+					"config/devices/messenger",
 					"config/devices/meter",
+					"config/devices/tariff",
 					"config/devices/vehicle",
 				];
 
@@ -502,10 +555,10 @@ export default defineComponent({
 					"config/site",
 					...deviceEndpoints,
 					"config/circuits",
-					"config/eebus",
 					"config/hems",
 					"config/messaging",
 					"config/tariffs",
+					"config/tariff",
 				];
 
 				const configs: any = {};
@@ -515,7 +568,11 @@ export default defineComponent({
 						// Add private=false for device endpoints to hide private data in bug reports
 						const response = await api.get(endpoint, { params: { private: false } });
 						if (response.data && Object.keys(response.data).length > 0) {
-							const key = endpoint.replace("config/", "").replace("devices/", "");
+							let key = endpoint.replace("config/", "").replace("devices/", "");
+							// avoid collision with config/devices/tariff
+							if (key === "tariff" && !deviceEndpoints.includes(endpoint)) {
+								key = "tariffRefs";
+							}
 							let data = response.data;
 
 							// Filter out entries without id property for device endpoints
@@ -533,14 +590,20 @@ export default defineComponent({
 				}
 
 				// read essential config data from state
-				["modbusproxy", "mqtt", "influx", "shm", "interval", "experimental"].forEach(
-					(key) => {
-						const value = store.state[key as keyof State];
-						if (value !== undefined && value !== null) {
-							configs[key] = value;
-						}
+				[
+					"modbusproxy",
+					"mqtt",
+					"influx",
+					"shm",
+					"interval",
+					"residualPower",
+					"experimental",
+				].forEach((key) => {
+					const value = store.state[key as keyof State];
+					if (value !== undefined && value !== null) {
+						configs[key] = value;
 					}
-				);
+				});
 
 				this.sections.uiConfig.content = formatJson(configs, EXPAND_KEYS);
 			} catch (error) {
@@ -589,10 +652,26 @@ export default defineComponent({
 		},
 
 		handleFormSubmit() {
+			if (this.emailMode) {
+				window.location.href = generateMailtoUrl(this.customEmail, this.issueData);
+				return;
+			}
 			const modalElement = document.getElementById("issueSummaryModal") as HTMLElement;
 			if (modalElement) {
 				Modal.getOrCreateInstance(modalElement).show();
 			}
+		},
+
+		downloadDebugFile() {
+			const blob = new Blob([generateDebugFile(this.issueData, this.sections)], {
+				type: "text/plain",
+			});
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = `evcc-debug-${this.versionString}.txt`;
+			a.click();
+			URL.revokeObjectURL(url);
 		},
 
 		clearSessionStorage() {
@@ -606,12 +685,9 @@ export default defineComponent({
 </script>
 
 <style scoped>
-.log-count-input::-webkit-outer-spin-button,
-.log-count-input::-webkit-inner-spin-button {
-	margin-left: 0.5rem;
-}
+@import "../../css/breakpoints.css";
 
-@media (min-width: 768px) {
+@media (--md-and-up) {
 	.log-lines-input {
 		width: 170px;
 	}

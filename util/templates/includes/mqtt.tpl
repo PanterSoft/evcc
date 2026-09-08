@@ -1,12 +1,12 @@
 {{ define "mqtt" }}
-broker: {{ .host }}:{{ .port }}
+broker: {{ joinHostPort .host .port }}
 {{- if .user }}
 user: {{ .user }}
 {{- end }}
 {{- if .password }}
 password: {{ .password }}
 {{- end }}
-{{- if ne .timeout "30s" }}
+{{- if .timeout }}
 timeout: {{ .timeout }}
 {{- end }}
 {{- if .caCert }}

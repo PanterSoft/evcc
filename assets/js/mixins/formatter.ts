@@ -1,6 +1,55 @@
 import { defineComponent } from "vue";
 import { is12hFormat } from "@/units";
 import { CURRENCY } from "../types/evcc";
+import settings from "@/settings";
+import type { DateFormat } from "@/settings";
+
+// Extract a single part in date context, where names can differ from their
+// standalone forms (German "So.", "Jan." vs "So", "Jan").
+function datePart(
+  date: Date,
+  locale: string | undefined,
+  type: Intl.DateTimeFormatPartTypes
+): string {
+  return (
+    new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short" })
+      .formatToParts(date)
+      .find((part) => part.type === type)?.value ?? ""
+  );
+}
+
+// Day+month(+year) in the user's date order, e.g. "17 Mai" or "Mai 17, 2025".
+// Ordering and punctuation come from a reference locale (en-GB day-first,
+// en-US month-first), month names stay translated. ymd is the full ISO date.
+function formatDayMonth(
+  date: Date,
+  locale: string | undefined,
+  fmt: DateFormat,
+  year = false
+): string {
+  if (fmt === "ymd") return isoDate(date);
+  const orderLocale = fmt === "mdy" ? "en-US" : "en-GB";
+  const month = datePart(date, locale, "month");
+  // some locales (e.g. Czech) use numeric months in date context
+  const name = /\p{L}/u.test(month)
+    ? month
+    : new Intl.DateTimeFormat(locale, { month: "short" }).format(date);
+  return new Intl.DateTimeFormat(orderLocale, {
+    month: "short",
+    day: "numeric",
+    year: year ? "numeric" : undefined,
+  })
+    .formatToParts(date)
+    .map((part) => (part.type === "month" ? name : part.value))
+    .join("");
+}
+
+// local-time ISO date, Intl cannot produce this reliably across locales
+function isoDate(date: Date): string {
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${mm}-${dd}`;
+}
 
 const CURRENCY_SYMBOLS: Record<CURRENCY, string> = {
   AUD: "$",
@@ -9,14 +58,27 @@ const CURRENCY_SYMBOLS: Record<CURRENCY, string> = {
   CAD: "$",
   CHF: "Fr.",
   CNY: "¥",
+  CZK: "Kč",
   EUR: "€",
   GBP: "£",
+  HUF: "Ft",
   ILS: "₪",
+  JPY: "¥",
   NZD: "$",
+  NOK: "kr",
   PLN: "zł",
+  RON: "lei",
   USD: "$",
   DKK: "kr",
   SEK: "kr",
+  ZAR: "R",
+  TRY: "₺",
+  MYR: "RM",
+  THB: "฿",
+  BYN: "Br",
+  UAH: "₴",
+  RUB: "₽",
+  KZT: "₸",
 };
 
 // list of currencies where energy price should be displayed in subunits (factor 100)
@@ -29,10 +91,14 @@ const ENERGY_PRICE_IN_SUBUNIT: Partial<Record<CURRENCY, string>> = {
   GBP: "p", // GB pence
   ILS: "ag", // Israeli agora
   NZD: "c", // New Zealand cent
+  NOK: "øre", // Norwegian øre
   PLN: "gr", // Polish grosz
   USD: "¢", // US cent
   DKK: "øre", // Danish øre
   SEK: "öre", // Swedish öre
+  ZAR: "c", // South African cent
+  TRY: "krş", // Türkiye kuruş
+  BYN: "к.", // Belarusian kapeyka
 };
 
 export enum POWER_UNIT {
@@ -50,6 +116,11 @@ export default defineComponent({
       fmtDigits: 1,
     };
   },
+  computed: {
+    dateFormat(): DateFormat {
+      return settings.dateFormat || "";
+    },
+  },
   methods: {
     energyPriceSubunit(currency: CURRENCY): string | undefined {
       if (currency === CURRENCY.CHF) {
@@ -61,17 +132,18 @@ export default defineComponent({
       const base = 10 ** precision;
       return (Math.round(num * base) / base).toFixed(precision);
     },
+    getPowerUnit(watt: number): POWER_UNIT {
+      const abs = Math.abs(watt);
+      return abs >= 10_000_000 ? POWER_UNIT.MW : abs >= 1000 ? POWER_UNIT.KW : POWER_UNIT.W;
+    },
+    fmtPhasePower(current?: number, phases?: number) {
+      return this.fmtW(230 * (current || 0) * (phases || 0));
+    },
     fmtW(watt = 0, format = POWER_UNIT.KW, withUnit = true, digits?: number) {
       let unit = format;
       let d = digits;
       if (POWER_UNIT.AUTO === unit) {
-        if (watt >= 10_000_000) {
-          unit = POWER_UNIT.MW;
-        } else if (watt >= 1000 || 0 === watt) {
-          unit = POWER_UNIT.KW;
-        } else {
-          unit = POWER_UNIT.W;
-        }
+        unit = watt === 0 ? POWER_UNIT.KW : this.getPowerUnit(watt);
       }
       let value = watt;
       if (POWER_UNIT.KW === unit) {
@@ -174,6 +246,10 @@ export default defineComponent({
       const formatter = new Intl.DurationFormat(this.$i18n?.locale, { style });
       return formatter.format({ minutes, hours });
     },
+    fmtDurationParts(parts: Record<string, number>) {
+      // @ts-expect-error - Intl.DurationFormat is a new API not yet in TS types
+      return new Intl.DurationFormat(this.$i18n?.locale, { style: "long" }).format(parts);
+    },
     fmtDayString(date: Date) {
       const YY = `${date.getFullYear()}`;
       const MM = `${date.getMonth() + 1}`.padStart(2, "0");
@@ -198,17 +274,24 @@ export default defineComponent({
       }).format(date);
     },
     hourShort(date: Date) {
-      const locale = this.$i18n?.locale;
-      // special: use shorter german format
-      if (locale === "de") return date.getHours();
-      return new Intl.DateTimeFormat(locale, {
+      // keep only hour and AM/PM; drops locale noise like "Uhr" (de), "h" (fr) and leading zeros
+      return new Intl.DateTimeFormat(this.$i18n?.locale, {
         hour: "numeric",
         hour12: is12hFormat(),
-      }).format(date);
+      })
+        .formatToParts(date)
+        .filter(({ type }) => type === "hour" || type === "dayPeriod")
+        .map(({ value }) => value.replace(/^0(?=\d)/, ""))
+        .join(" ");
     },
     weekdayShort(date: Date) {
       return new Intl.DateTimeFormat(this.$i18n?.locale, {
         weekday: "short",
+      }).format(date);
+    },
+    weekdayLong(date: Date) {
+      return new Intl.DateTimeFormat(this.$i18n?.locale, {
+        weekday: "long",
       }).format(date);
     },
     fmtAbsoluteDate(date: Date) {
@@ -221,6 +304,22 @@ export default defineComponent({
 
       return `${weekday} ${hour}`.trim();
     },
+    // "gestern"/"heute"/"morgen" within one day of now, null otherwise
+    relativeDayName(date: Date) {
+      const startOfDay = (d: Date) => new Date(d).setHours(0, 0, 0, 0);
+      const days = Math.round((startOfDay(date) - startOfDay(new Date())) / 86400000);
+      if (Math.abs(days) > 1) return null;
+      return new Intl.RelativeTimeFormat(this.$i18n?.locale, { numeric: "auto" }).format(
+        days,
+        "day"
+      );
+    },
+    // relative day plus time, e.g. "heute 16:30", "morgen 5:00", "Freitag 12:15"
+    fmtDayTime(date: Date) {
+      const time = this.fmtHourMinute(date);
+      const day = this.relativeDayName(date);
+      return `${day ?? this.weekdayLong(date)} ${time}`;
+    },
     fmtHourMinute(date: Date) {
       return new Intl.DateTimeFormat(this.$i18n?.locale, {
         hour: "numeric",
@@ -228,15 +327,33 @@ export default defineComponent({
         hour12: is12hFormat(),
       }).format(date);
     },
-    fmtFullDateTime(date: Date, short: boolean) {
-      return new Intl.DateTimeFormat(this.$i18n?.locale, {
-        weekday: short ? undefined : "short",
-        month: short ? "numeric" : "short",
-        day: "numeric",
+    fmtFullDateTime(date: Date) {
+      const locale = this.$i18n?.locale;
+      const fmt = this.dateFormat;
+      if (!fmt) {
+        // auto: single Intl call preserves locale-native separators (e.g. German "So., 15. Jan.,")
+        return new Intl.DateTimeFormat(locale, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "numeric",
+          hour12: is12hFormat(),
+        }).format(date);
+      }
+      const time = new Intl.DateTimeFormat(locale, {
         hour: "numeric",
         minute: "numeric",
         hour12: is12hFormat(),
       }).format(date);
+      const weekday = datePart(date, locale, "weekday");
+      return `${weekday} ${formatDayMonth(date, locale, fmt, true)} ${time}`.trim();
+    },
+    // weekday + day of month + time, for lists within a known month
+    fmtWeekdayDayTime(date: Date) {
+      const weekday = datePart(date, this.$i18n?.locale, "weekday");
+      return `${weekday} ${date.getDate()}, ${this.fmtHourMinute(date)}`;
     },
     fmtWeekdayTime(date: Date) {
       return new Intl.DateTimeFormat(this.$i18n?.locale, {
@@ -258,11 +375,41 @@ export default defineComponent({
       }).format(date);
     },
     fmtDayMonth(date: Date) {
+      const locale = this.$i18n?.locale;
+      const fmt = this.dateFormat;
+      if (!fmt) {
+        return new Intl.DateTimeFormat(locale, {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        }).format(date);
+      }
+      const weekday = datePart(date, locale, "weekday");
+      return `${weekday} ${formatDayMonth(date, locale, fmt)}`.trim();
+    },
+    fmtDayMonthYear(date: Date) {
       return new Intl.DateTimeFormat(this.$i18n?.locale, {
         weekday: "short",
         day: "numeric",
         month: "short",
+        year: "numeric",
       }).format(date);
+    },
+    fmtDayMonthShort(date: Date) {
+      return new Intl.DateTimeFormat(this.$i18n?.locale, {
+        day: "numeric",
+        month: "short",
+      }).format(date);
+    },
+    fmtMonthNarrow(date: Date) {
+      return new Intl.DateTimeFormat(this.$i18n?.locale, {
+        month: "narrow",
+      }).format(date);
+    },
+    // "HH:mm – HH:mm" honoring 12h/24h preference.
+    fmtTimeSlot(start: Date, durationMs: number) {
+      const end = new Date(start.getTime() + durationMs);
+      return `${this.fmtHourMinute(start)} – ${this.fmtHourMinute(end)}`;
     },
     fmtDurationUnit(value: number, unit = "second") {
       return new Intl.NumberFormat(this.$i18n?.locale, {
@@ -289,15 +436,16 @@ export default defineComponent({
     fmtCurrencySymbol(currency = CURRENCY.EUR) {
       return CURRENCY_SYMBOLS[currency] || currency;
     },
+    fmtCurrencyName(currency: CURRENCY) {
+      return (
+        new Intl.DisplayNames(this.$i18n?.locale, { type: "currency" }).of(currency) || currency
+      );
+    },
     fmtPricePerKWh(amout = 0, currency = CURRENCY.EUR, short = false, withUnit = true) {
-      let value = amout;
-      let minimumFractionDigits = 1;
-      let maximumFractionDigits = 3;
-      if (this.energyPriceSubunit(currency)) {
-        value *= 100;
-        minimumFractionDigits = 1;
-        maximumFractionDigits = 1;
-      }
+      const factor = this.pricePerKWhDisplayFactor(currency);
+      const value = amout * factor;
+      const minimumFractionDigits = 1;
+      const maximumFractionDigits = this.energyPriceSubunit(currency) ? 1 : 3;
       const price = new Intl.NumberFormat(this.$i18n?.locale, {
         style: "decimal",
         minimumFractionDigits,
@@ -314,6 +462,9 @@ export default defineComponent({
     pricePerKWhUnit(currency = CURRENCY.EUR, short = false) {
       const unit = this.energyPriceSubunit(currency) || CURRENCY_SYMBOLS[currency] || currency;
       return `${unit}${short ? "" : "/kWh"}`;
+    },
+    pricePerKWhDisplayFactor(currency = CURRENCY.EUR) {
+      return this.energyPriceSubunit(currency) ? 100 : 1;
     },
     fmtTimeAgo(elapsed: number) {
       const units = {
@@ -364,67 +515,108 @@ export default defineComponent({
       // TODO: handle fahrenheit
       return this.fmtNumber(value, 1, "celsius");
     },
-    getWeekdaysList(
-      weekdayFormat: Intl.DateTimeFormatOptions["weekday"]
-    ): { name: string; value: number }[] {
-      const { format } = new Intl.DateTimeFormat(this.$i18n?.locale, {
-        weekday: weekdayFormat,
-      });
-      const mondayToSaturday = [7, 8, 9, 10, 11, 12].map((day, index) => {
-        return { name: format(new Date(Date.UTC(2021, 5, day))), value: index + 1 };
-      });
-      const sunday = { name: format(new Date(Date.UTC(2021, 5, 6))), value: 0 };
-      return [...mondayToSaturday, sunday];
+    fmtWeekdayByIndex(index: number, format: Intl.DateTimeFormatOptions["weekday"]) {
+      // June 7, 2021 is Monday (index 1), June 6 is Sunday (index 0)
+      const day = index === 0 ? 6 : 6 + index;
+      return new Intl.DateTimeFormat(this.$i18n?.locale, {
+        weekday: format,
+      }).format(new Date(2021, 5, day)); // local date avoids UTC timezone day shift
     },
-    getShortenedWeekdaysLabel(selectedWeekdays: number[]): string {
-      if (0 === selectedWeekdays.length) {
+    fmtMonthByIndex(index: number, format: Intl.DateTimeFormatOptions["month"]) {
+      return new Intl.DateTimeFormat(this.$i18n?.locale, {
+        month: format,
+      }).format(new Date(2021, index, 1)); // local date avoids UTC timezone day shift
+    },
+    getWeekdaysList(
+      format: Intl.DateTimeFormatOptions["weekday"]
+    ): { name: string; value: number }[] {
+      return Array.from({ length: 7 }, (_, i) => {
+        const value = (i + 1) % 7; // Mon=1, Tue=2, ..., Sat=6, Sun=0
+        return { name: this.fmtWeekdayByIndex(value, format), value };
+      });
+    },
+    getMonthsList(format: Intl.DateTimeFormatOptions["month"]): { name: string; value: number }[] {
+      return Array.from({ length: 12 }, (_, i) => ({
+        name: this.fmtMonthByIndex(i, format),
+        value: i,
+      }));
+    },
+    fmtConsecutiveRange(
+      selectedIndices: number[],
+      getNameFn: (transformedIndex: number) => string | undefined,
+      transformFn?: (index: number) => number
+    ): string {
+      if (!selectedIndices || selectedIndices.length === 0) {
         return "–";
       }
 
-      const weekdays = this.getWeekdaysList("short");
+      // Transform indices if needed (e.g., Sunday 0 -> 7 for weekdays)
+      const workingIndices = transformFn ? selectedIndices.map(transformFn) : selectedIndices;
+
+      // Sort the indices
+      const sorted = [...workingIndices].sort((a, b) => a - b);
       let label = "";
+      const max = Math.max(...sorted);
 
-      // the week in the input-parameter starts with 0 for sunday and ends with 6 for saturday
-      // this algorithms works only if the week starts with 1 for monday and ends with 7 for sunday because
-      // then we are able to count from 1 to 7 by incrementing the number
-      // so we have to transform the input accordingly
-      const selectedWeekdaysTransformed = selectedWeekdays.map(function (dayIndex) {
-        return 0 === dayIndex ? 7 : dayIndex;
-      });
-      function getWeekdayName(dayIndex: number) {
-        return weekdays.find((day) => day.value === (7 === dayIndex ? 0 : dayIndex))?.name;
-      }
+      for (let i = 0; i < sorted.length; i++) {
+        const rangeStart = sorted[i];
+        if (rangeStart === undefined) continue;
 
-      const maxWeekday = Math.max(...selectedWeekdaysTransformed);
+        label += getNameFn(rangeStart);
 
-      for (let weekdayRangeStart = 1; weekdayRangeStart < 8; weekdayRangeStart++) {
-        if (selectedWeekdaysTransformed.includes(weekdayRangeStart)) {
-          label += getWeekdayName(weekdayRangeStart);
+        let rangeEnd = rangeStart;
+        let j = i;
 
-          let weekdayRangeEnd = weekdayRangeStart;
-          while (selectedWeekdaysTransformed.includes(weekdayRangeEnd + 1)) {
-            weekdayRangeEnd++;
-          }
+        // Find consecutive indices
+        while (j + 1 < sorted.length && sorted[j + 1] === rangeEnd + 1) {
+          rangeEnd++;
+          j++;
+        }
 
-          if (weekdayRangeEnd - weekdayRangeStart > 1) {
-            // more than 2 consecutive weekdays selected
-            label += " – " + getWeekdayName(weekdayRangeEnd);
-            weekdayRangeStart = weekdayRangeEnd;
-            if (maxWeekday !== weekdayRangeEnd) {
-              label += ", ";
-            }
-          } else if (weekdayRangeStart !== weekdayRangeEnd) {
-            // exactly 2 consecutive weekdays selected
-            label += ", ";
-          } else {
-            // exactly 1 single day selected
-            if (maxWeekday !== weekdayRangeEnd) {
-              label += ", ";
-            }
-          }
+        if (rangeEnd - rangeStart > 1) {
+          // more than 2 consecutive items selected
+          label += " – " + getNameFn(rangeEnd);
+          i = j;
+        } else if (rangeEnd > rangeStart) {
+          // 2 consecutive items selected
+          label += ", " + getNameFn(rangeEnd);
+          i = j;
+        }
+
+        const current = sorted[i];
+        if (current !== undefined && current < max) {
+          label += ", ";
         }
       }
+
       return label;
+    },
+    fmtWeekdaysRange(selectedWeekdays: number[]): string {
+      const getName = (i: number) => this.fmtWeekdayByIndex(i % 7, "short");
+      const transform = (i: number) => i || 7;
+      return this.fmtConsecutiveRange(selectedWeekdays, getName, transform);
+    },
+    fmtMonthsRange(selectedMonths: number[]): string {
+      const getName = (i: number) => this.fmtMonthByIndex(i, "short");
+      return this.fmtConsecutiveRange(selectedMonths, getName);
+    },
+    // format a HH:MM to proper formatted time
+    fmtTimeStr(timeStr: string): string {
+      const [hour, minute] = timeStr.split(":").map((s) => parseInt(s, 10));
+      const date = new Date(2021, 0, 1);
+      date.setHours(hour!, minute!);
+      return new Intl.DateTimeFormat(this.$i18n?.locale, {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: is12hFormat(),
+      }).format(date);
+    },
+    // format a HH:MM-HH:MM to proper formatted range
+    fmtTimeRange(timeRange: string): string {
+      if (!timeRange) return "";
+      const parts = timeRange.split("-");
+      if (parts.length !== 2) return timeRange;
+      return `${this.fmtTimeStr(parts[0]!)} – ${this.fmtTimeStr(parts[1]!)}`;
     },
   },
 });

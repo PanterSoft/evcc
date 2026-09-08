@@ -2,6 +2,7 @@ package globalconfig
 
 import (
 	"encoding/json"
+	"iter"
 	"net"
 	"os"
 	"strconv"
@@ -40,7 +41,7 @@ type All struct {
 	SponsorToken    string
 	Plant           string // telemetry plant id
 	Telemetry       bool
-	Mcp             bool
+	Mcp             bool // TODO deprecated
 	Metrics         bool
 	Profile         bool
 	Levels          map[string]string
@@ -63,6 +64,7 @@ type All struct {
 	Site            map[string]any
 	Loadpoints      []config.Named
 	Circuits        []config.Named
+	Curtailers      []config.Named
 }
 
 type Javascript struct {
@@ -78,7 +80,7 @@ type Go struct {
 type ModbusProxy struct {
 	Port            int    `json:"port"`
 	ReadOnly        string `yaml:",omitempty" json:"readonly,omitempty"`
-	modbus.Settings `mapstructure:",squash" yaml:",inline,omitempty" json:"settings,omitempty"`
+	modbus.Settings `mapstructure:",squash" yaml:",inline,omitempty" json:"settings"`
 }
 
 var _ api.Redactor = (*Hems)(nil)
@@ -165,12 +167,42 @@ func (c Messaging) IsConfigured() bool {
 }
 
 type Tariffs struct {
-	Currency string
-	Grid     config.Typed
-	FeedIn   config.Typed
-	Co2      config.Typed
-	Planner  config.Typed
-	Solar    []config.Typed
+	Currency    string
+	Grid        config.Typed
+	FeedIn      config.Typed
+	Co2         config.Typed
+	Planner     config.Typed
+	Solar       []config.Typed
+	Temperature config.Typed
+}
+
+func (c Tariffs) IsConfigured() bool {
+	return c.Currency != "" || c.Grid.Type != "" || c.FeedIn.Type != "" || c.Co2.Type != "" || c.Planner.Type != "" || len(c.Solar) > 0 || c.Temperature.Type != ""
+}
+
+type TariffRefs struct {
+	Grid        string   `json:"grid"`
+	FeedIn      string   `json:"feedIn"`
+	Co2         string   `json:"co2"`
+	Planner     string   `json:"planner"`
+	Solar       []string `json:"solar"`
+	Temperature string   `json:"temperature"`
+}
+
+func (refs TariffRefs) IsConfigured() bool {
+	return refs.Grid != "" || refs.FeedIn != "" || refs.Co2 != "" || refs.Planner != "" || len(refs.Solar) > 0 || refs.Temperature != ""
+}
+
+func (refs TariffRefs) Used() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for _, ref := range append([]string{refs.Grid, refs.FeedIn, refs.Co2, refs.Planner, refs.Temperature}, refs.Solar...) {
+			if ref != "" {
+				if !yield(ref) {
+					return
+				}
+			}
+		}
+	}
 }
 
 type Network struct {

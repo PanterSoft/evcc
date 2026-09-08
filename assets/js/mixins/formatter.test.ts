@@ -1,7 +1,8 @@
 import { mount, config } from "@vue/test-utils";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import formatter, { POWER_UNIT } from "./formatter";
 import * as units from "../units";
+import settings from "../settings";
 import { defineComponent } from "vue";
 import { CURRENCY } from "@/types/evcc";
 
@@ -30,6 +31,11 @@ describe("fmtW", () => {
     expect(fmt.fmtW(0, POWER_UNIT.W)).eq("0 W");
     expect(fmt.fmtW(1200000, POWER_UNIT.W)).eq("1.200.000 W");
   });
+  test("should format negative values", () => {
+    expect(fmt.fmtW(-5300, POWER_UNIT.AUTO)).eq("-5,3 kW");
+    expect(fmt.fmtW(-500, POWER_UNIT.AUTO)).eq("-500 W");
+    expect(fmt.fmtW(-12000000, POWER_UNIT.AUTO)).eq("-12,0 MW");
+  });
   test("should format without units", () => {
     expect(fmt.fmtW(0, POWER_UNIT.AUTO, false)).eq("0,0");
     expect(fmt.fmtW(1200000, POWER_UNIT.AUTO, false)).eq("1.200,0");
@@ -53,6 +59,16 @@ describe("fmtW", () => {
     expect(fmt.fmtW(12345, POWER_UNIT.W, true, 0)).eq("12.345 W");
     expect(fmt.fmtW(12345, POWER_UNIT.W, true, 1)).eq("12.345,0 W");
     expect(fmt.fmtW(12345, POWER_UNIT.W, true, 2)).eq("12.345,00 W");
+  });
+});
+
+describe("getPowerUnit", () => {
+  test("should pick unit based on largest value", () => {
+    expect(fmt.getPowerUnit(0)).eq(POWER_UNIT.W);
+    expect(fmt.getPowerUnit(999)).eq(POWER_UNIT.W);
+    expect(fmt.getPowerUnit(1000)).eq(POWER_UNIT.KW);
+    expect(fmt.getPowerUnit(9_999_999)).eq(POWER_UNIT.KW);
+    expect(fmt.getPowerUnit(10_000_000)).eq(POWER_UNIT.MW);
   });
 });
 
@@ -175,21 +191,68 @@ describe("getWeekdaysList", () => {
   });
 });
 
-describe("getShortenedWeekdaysLabel", () => {
+describe("getMonthsList", () => {
+  test("should return the correct month-order", () => {
+    expect(fmt.getMonthsList("long")).toEqual([
+      { name: "Januar", value: 0 },
+      { name: "Februar", value: 1 },
+      { name: "März", value: 2 },
+      { name: "April", value: 3 },
+      { name: "Mai", value: 4 },
+      { name: "Juni", value: 5 },
+      { name: "Juli", value: 6 },
+      { name: "August", value: 7 },
+      { name: "September", value: 8 },
+      { name: "Oktober", value: 9 },
+      { name: "November", value: 10 },
+      { name: "Dezember", value: 11 },
+    ]);
+  });
+  test("should return short month names", () => {
+    const shortMonths = fmt.getMonthsList("short");
+    expect(shortMonths).toHaveLength(12);
+    expect(shortMonths[0]).toEqual({ name: "Jan", value: 0 });
+    expect(shortMonths[11]).toEqual({ name: "Dez", value: 11 });
+  });
+});
+
+describe("fmtWeekdaysRange", () => {
   test("should format single days", () => {
-    expect(fmt.getShortenedWeekdaysLabel([0])).eq("So");
-    expect(fmt.getShortenedWeekdaysLabel([0, 2, 4, 6])).eq("Di, Do, Sa, So");
-    expect(fmt.getShortenedWeekdaysLabel([6])).eq("Sa");
-    expect(fmt.getShortenedWeekdaysLabel([3, 6])).eq("Mi, Sa");
+    expect(fmt.fmtWeekdaysRange([0])).eq("So");
+    expect(fmt.fmtWeekdaysRange([0, 2, 4, 6])).eq("Di, Do, Sa, So");
+    expect(fmt.fmtWeekdaysRange([6])).eq("Sa");
+    expect(fmt.fmtWeekdaysRange([3, 6])).eq("Mi, Sa");
   });
   test("should format ranges", () => {
-    expect(fmt.getShortenedWeekdaysLabel([1, 2])).eq("Mo, Di");
-    expect(fmt.getShortenedWeekdaysLabel([0, 1, 2, 3, 4, 5, 6])).eq("Mo – So");
-    expect(fmt.getShortenedWeekdaysLabel([0, 1, 3, 4, 5])).eq("Mo, Mi – Fr, So");
+    expect(fmt.fmtWeekdaysRange([1, 2])).eq("Mo, Di");
+    expect(fmt.fmtWeekdaysRange([0, 1, 2, 3, 4, 5, 6])).eq("Mo – So");
+    expect(fmt.fmtWeekdaysRange([0, 1, 3, 4, 5])).eq("Mo, Mi – Fr, So");
   });
   test("should format single days and ranges", () => {
-    expect(fmt.getShortenedWeekdaysLabel([0, 1, 3, 5, 6])).eq("Mo, Mi, Fr – So");
-    expect(fmt.getShortenedWeekdaysLabel([0, 2, 3, 5, 6])).eq("Di, Mi, Fr – So");
+    expect(fmt.fmtWeekdaysRange([0, 1, 3, 5, 6])).eq("Mo, Mi, Fr – So");
+    expect(fmt.fmtWeekdaysRange([0, 2, 3, 5, 6])).eq("Di, Mi, Fr – So");
+  });
+});
+
+describe("fmtMonthsRange", () => {
+  test("should format single months", () => {
+    expect(fmt.fmtMonthsRange([0])).eq("Jan");
+    expect(fmt.fmtMonthsRange([0, 3, 6, 9])).eq("Jan, Apr, Jul, Okt");
+    expect(fmt.fmtMonthsRange([11])).eq("Dez");
+    expect(fmt.fmtMonthsRange([2, 8])).eq("Mär, Sep");
+  });
+  test("should format ranges", () => {
+    expect(fmt.fmtMonthsRange([0, 1])).eq("Jan, Feb");
+    expect(fmt.fmtMonthsRange([0, 1, 2])).eq("Jan – Mär");
+    expect(fmt.fmtMonthsRange([9, 10, 11])).eq("Okt – Dez");
+    expect(fmt.fmtMonthsRange([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])).eq("Jan – Dez");
+  });
+  test("should format single months and ranges", () => {
+    expect(fmt.fmtMonthsRange([0, 1, 2, 5, 9, 10, 11])).eq("Jan – Mär, Jun, Okt – Dez");
+    expect(fmt.fmtMonthsRange([0, 3, 4, 5, 8])).eq("Jan, Apr – Jun, Sep");
+  });
+  test("should handle empty array", () => {
+    expect(fmt.fmtMonthsRange([])).eq("–");
   });
 });
 
@@ -213,7 +276,7 @@ describe("12h/24h time format", () => {
   test("12h format", () => {
     is12hSpy.mockReturnValue(true);
     expect(fmt.fmtHourMinute(testDate)).toBe("3:30 PM");
-    expect(fmt.fmtFullDateTime(testDate, false)).toBe("So., 15. Jan., 3:30 PM");
+    expect(fmt.fmtFullDateTime(testDate)).toBe("So., 15. Jan. 2023, 3:30 PM");
     expect(fmt.fmtWeekdayTime(testDate)).toBe("So. 3:30 PM");
     expect(fmt.fmtAbsoluteDate(testDate)).toBe("So 3:30 PM");
   });
@@ -221,8 +284,94 @@ describe("12h/24h time format", () => {
   test("24h format", () => {
     is12hSpy.mockReturnValue(false);
     expect(fmt.fmtHourMinute(testDate)).toBe("15:30");
-    expect(fmt.fmtFullDateTime(testDate, false)).toBe("So., 15. Jan., 15:30");
+    expect(fmt.fmtFullDateTime(testDate)).toBe("So., 15. Jan. 2023, 15:30");
     expect(fmt.fmtWeekdayTime(testDate)).toBe("So., 15:30");
     expect(fmt.fmtAbsoluteDate(testDate)).toBe("So 15:30");
+  });
+});
+
+describe("date format", () => {
+  test("should order day and month by preference", () => {
+    is12hSpy.mockReturnValue(false);
+    settings.dateFormat = "dmy";
+    expect(fmt.fmtFullDateTime(testDate)).toBe("So. 15 Jan. 2023 15:30");
+    settings.dateFormat = "mdy";
+    expect(fmt.fmtFullDateTime(testDate)).toBe("So. Jan. 15, 2023 15:30");
+    settings.dateFormat = "ymd";
+    expect(fmt.fmtFullDateTime(testDate)).toBe("So. 2023-01-15 15:30");
+    settings.dateFormat = "";
+  });
+  test("should format day and time", () => {
+    is12hSpy.mockReturnValue(false);
+    expect(fmt.fmtWeekdayDayTime(testDate)).toBe("So. 15, 15:30");
+  });
+});
+
+describe("fmtTimeRange", () => {
+  test("should format time ranges in 24h format", () => {
+    is12hSpy.mockReturnValue(false);
+    expect(fmt.fmtTimeRange("09:00-17:00")).toBe("9:00 – 17:00");
+    expect(fmt.fmtTimeRange("06:00-12:00")).toBe("6:00 – 12:00");
+  });
+
+  test("should format time ranges in 12h format", () => {
+    is12hSpy.mockReturnValue(true);
+    expect(fmt.fmtTimeRange("09:00-17:00")).toBe("9:00 AM – 5:00 PM");
+    expect(fmt.fmtTimeRange("00:00-23:59")).toBe("12:00 AM – 11:59 PM");
+  });
+
+  test("should always include minutes", () => {
+    is12hSpy.mockReturnValue(false);
+    expect(fmt.fmtTimeRange("09:00-17:00")).toBe("9:00 – 17:00");
+    expect(fmt.fmtTimeRange("09:15-17:45")).toBe("9:15 – 17:45");
+  });
+
+  test("should handle empty input", () => {
+    expect(fmt.fmtTimeRange("")).toBe("");
+  });
+});
+
+describe("hourShort", () => {
+  const afternoon = new Date(2026, 0, 1, 16);
+
+  test("should strip locale suffixes in 24h format", () => {
+    is12hSpy.mockReturnValue(false);
+    for (const locale of ["de", "fr", "en", "ja"]) {
+      config.global.mocks["$i18n"].locale = locale;
+      expect(fmt.hourShort(afternoon)).toBe("16");
+    }
+    config.global.mocks["$i18n"].locale = "de";
+  });
+
+  test("should include day period in 12h format", () => {
+    is12hSpy.mockReturnValue(true);
+    const expected = { de: "4 PM", fr: "4 PM", en: "4 PM", ja: "午後 4" };
+    for (const [locale, value] of Object.entries(expected)) {
+      config.global.mocks["$i18n"].locale = locale;
+      expect(fmt.hourShort(afternoon)).toBe(value);
+    }
+    config.global.mocks["$i18n"].locale = "en";
+    expect(fmt.hourShort(new Date(2026, 0, 1, 0))).toBe("12 AM");
+    is12hSpy.mockReturnValue(false);
+    config.global.mocks["$i18n"].locale = "de";
+  });
+});
+
+describe("relativeDayName", () => {
+  const day = (offset: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return d;
+  };
+
+  test("should name adjacent days", () => {
+    expect(fmt.relativeDayName(day(-1))).toBe("gestern");
+    expect(fmt.relativeDayName(day(0))).toBe("heute");
+    expect(fmt.relativeDayName(day(1))).toBe("morgen");
+  });
+
+  test("should return null beyond one day", () => {
+    expect(fmt.relativeDayName(day(-2))).toBeNull();
+    expect(fmt.relativeDayName(day(2))).toBeNull();
   });
 });

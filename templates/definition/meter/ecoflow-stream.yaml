@@ -1,0 +1,91 @@
+template: ecoflow-stream
+products:
+  - brand: EcoFlow
+    description:
+      generic: Stream
+capabilities: ["battery-control"]
+requirements:
+  description:
+    de: |
+      Für die Nutzung des EcoFlow Stream Meters benötigen Sie:
+      - Einen gültigen Access Key von der EcoFlow Developer Console
+      - Den entsprechenden Secret Key
+      - Die Seriennummer des Hauptgerätes Ihres Stream Systems
+
+      Diese Credentials erhalten Sie über die EcoFlow Developer Console nach der Registrierung Ihrer Anwendung.
+
+      Für die aktive Batteriesteuerung muss `maxsoc` gesetzt werden. Im Normalbetrieb wird die
+      Backup Reserve auf `minsoc` gesetzt, beim Netzladen auf `maxsoc`.
+
+      **Achtung**: Die aktive Batteriesteuerung überschreibt die in der EcoFlow App eingestellte
+      Backup Reserve. Das Gerät verlangt, dass die Backup Reserve das Entladelimit um 3 übersteigt,
+      niedrigere Werte für `minsoc` werden angehoben. Ohne `minsoc` entlädt die Batterie bis zum
+      Entladelimit des Geräts.
+    en: |
+      To use the EcoFlow Stream meter you need:
+      - A valid Access Key from the EcoFlow Developer Console
+      - The corresponding Secret Key
+      - The main device serial number of your Stream system
+
+      These credentials can be obtained through the EcoFlow Developer Console after registering your application.
+
+      For active battery control, `maxsoc` must be set. In normal operation the Backup Reserve is
+      set to `minsoc`, for grid charging to `maxsoc`.
+
+      **Note**: Active battery control overwrites the Backup Reserve configured in the EcoFlow app.
+      The device requires the Backup Reserve to exceed the discharge limit by 3, lower `minsoc`
+      values are raised accordingly. Without `minsoc` the battery discharges down to the device's
+      own discharge limit.
+params:
+  - name: usage
+    choice: ["grid", "pv", "battery"]
+  - name: accesskey
+    required: true
+    description:
+      generic: Access Key
+    help:
+      en: Access Key from EcoFlow Developer Console
+      de: Access Key aus der EcoFlow Developer Console
+  - name: secretkey
+    required: true
+    description:
+      generic: Secret Key
+    help:
+      en: Secret Key from EcoFlow Developer Console
+      de: Secret Key aus der EcoFlow Developer Console
+  - name: serial
+    required: true
+    help:
+      en: Serial number of the main device in your Stream system, normally the first device of your system
+      de: Seriennummer des Hauptgeräts (normalerweise das erste Gerät) Ihres Stream Systems
+  - name: region
+    choice: ["auto", "europe", "america"]
+    default: auto
+    advanced: true
+    description:
+      generic: "API Region"
+    help:
+      en: "If you sometimes see error code 8513, like for example Starlink users do, automatic region detection fails. Here, you can set the API region manually. Possible values: auto (default), europe, or america."
+      de: 'Manche Nutzer, z.B. mit Starlink-Internet, sehen gelegentlich in den Logs den "error code 8513". Das passiert, wenn die API Region nicht korrekt erkannt wird. Um das zu beheben, kann man die API Region manuell setzen. Mögliche Werte: auto (Standard), europe oder america.'
+  - name: cache
+    default: 30s
+  - preset: battery-params
+render: |
+  type: ecoflow
+  accesskey: {{ .accesskey }}
+  secretkey: {{ .secretkey }}
+  serial: {{ or .serial .deviceid }}
+  usage: {{ .usage }}
+  cache: {{ .cache }}
+  region: {{ .region }}
+  {{- if eq .usage "grid" }}
+  power: powGetSysGrid
+  {{- end }}
+  {{- if eq .usage "pv" }}
+  power: powGetPvSum
+  {{- end }}
+  {{- if eq .usage "battery" }}
+  power: powGetBpCms
+  soc: cmsBattSoc
+  {{- include "battery-params" . }}
+  {{- end }}

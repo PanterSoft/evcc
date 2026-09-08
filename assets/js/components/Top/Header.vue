@@ -3,30 +3,30 @@
 		class="d-flex justify-content-between align-items-center py-3 py-md-4"
 		data-testid="header"
 	>
-		<h1 class="mb-1 pt-1 d-flex text-nowrap text-truncate">
-			<router-link class="evcc-default-text" to="/" data-testid="home-link">
-				<shopicon-regular-home size="s" class="icon"></shopicon-regular-home>
-			</router-link>
-			<div v-if="showConfig" class="d-flex">
-				<div size="s" class="mx-2 flex-grow-0 flex-shrink-0 fw-normal">/</div>
-				<router-link to="/config" class="evcc-default-text text-decoration-none">
-					<shopicon-regular-settings
-						size="s"
-						class="icon d-block d-sm-none"
-					></shopicon-regular-settings>
-					<span class="d-none d-sm-block">{{ $t("config.main.title") }}</span>
-				</router-link>
-			</div>
-			<div size="s" class="mx-2 flex-grow-0 flex-shrink-0 fw-normal">/</div>
-			<span class="text-truncate">{{ title }}</span>
-		</h1>
+		<div class="title position-relative flex-grow-1 mb-1">
+			<Transition name="fade-swap-left">
+				<h1 v-if="!parentTitle" class="mb-0 pt-1 text-truncate">{{ title }}</h1>
+			</Transition>
+			<Transition name="fade-swap-right">
+				<div v-if="parentTitle" class="d-flex align-items-center text-nowrap">
+					<button
+						type="button"
+						class="btn btn-link back-button d-flex align-items-center p-0 border-0 me-2"
+						:aria-label="$t('general.back')"
+						@click="$emit('back')"
+					>
+						<shopicon-bold-arrowback></shopicon-bold-arrowback>
+					</button>
+					<h1 class="mb-0 pt-1 text-truncate">{{ title }}</h1>
+				</div>
+			</Transition>
+		</div>
 		<TopNavigationArea ref="navigationArea" :notifications="notifications" />
 	</header>
 </template>
 
 <script lang="ts">
-import "@h2d2/shopicons/es/regular/home";
-import "@h2d2/shopicons/es/regular/settings";
+import "@h2d2/shopicons/es/bold/arrowback";
 import TopNavigationArea from "./TopNavigationArea.vue";
 import { defineComponent, type PropType } from "vue";
 import type { Notification } from "@/types/evcc";
@@ -37,10 +37,12 @@ export default defineComponent({
 		TopNavigationArea,
 	},
 	props: {
-		showConfig: Boolean,
 		title: String,
+		// set on drill-down pages: shows a back button next to the title
+		parentTitle: String,
 		notifications: { type: Array as PropType<Notification[]>, default: () => [] },
 	},
+	emits: ["back"],
 	methods: {
 		requestAuthProvider(providerId: string) {
 			const navigationArea = this.$refs["navigationArea"] as
@@ -53,10 +55,11 @@ export default defineComponent({
 </script>
 
 <style scoped>
-.icon {
-	height: 22px;
-	width: 22px;
-	position: relative;
-	top: -3px;
+/* allow the flex item to shrink so the titles can truncate */
+.title {
+	min-width: 0;
+}
+.back-button {
+	color: var(--evcc-default-text);
 }
 </style>

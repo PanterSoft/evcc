@@ -6,10 +6,11 @@ products:
 group: generic
 requirements:
   description:
-    en: myMazda to MQTT. Required MQTT broker configuration and a mz2mqtt installation https://github.com/C64Axel/mz2mqtt.
-    de: myMazda zu MQTT. Voraussetzung ist ein konfigurierter MQTT Broker und eine mz2mqtt Installation https://github.com/C64Axel/mz2mqtt.
+    en: myMazda to MQTT. Required MQTT broker configuration and a mz2mqtt installation [github.com/C64Axel/mz2mqtt](https://github.com/C64Axel/mz2mqtt).
+    de: myMazda zu MQTT. Voraussetzung ist ein konfigurierter MQTT Broker und eine mz2mqtt Installation [github.com/C64Axel/mz2mqtt](https://github.com/C64Axel/mz2mqtt).
 params:
   - preset: vehicle-common
+  - preset: vehicle-online
   - name: vin
     required: true
   - name: timeout
@@ -17,7 +18,7 @@ params:
     advanced: true
 render: |
   type: custom
-  {{- include "vehicle-common" . }}
+  {{- include "common" . }}
   soc:
     source: mqtt
     topic: mz2mqtt/{{ .vin }}/chargeInfo/batteryLevelPercentage
@@ -36,3 +37,4 @@ render: |
     source: mqtt
     topic: mz2mqtt/{{ .vin }}/chargeInfo/drivingRangeKm
     timeout: {{ .timeout }}
+  {{ include "features" . }}

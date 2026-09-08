@@ -1,3 +1,4 @@
+import { updateCssColors } from "./colors";
 import settings from "./settings";
 import { THEME } from "./types/evcc";
 
@@ -8,7 +9,7 @@ export function getThemePreference(): THEME | null {
   if (theme && Object.values(THEME).includes(theme)) {
     return theme;
   }
-  return THEME.AUTO;
+  return window.evcc?.customTheme || THEME.AUTO;
 }
 
 export function setThemePreference(theme: THEME) {
@@ -47,6 +48,7 @@ function updateTheme() {
     $html.classList.add("no-transitions");
     $html.classList.toggle("dark", theme === THEME.DARK);
     $html.setAttribute("data-bs-theme", theme!);
+    requestAnimationFrame(updateCssColors);
     window.setTimeout(function () {
       $html.classList.remove("no-transitions");
     }, 100);

@@ -3,14 +3,26 @@ import { ConfigType } from "@/types/evcc";
 import api from "@/api";
 import { extractPlaceholders, replacePlaceholders } from "@/utils/placeholder";
 
+// config write needs the admin password (script plugin)
+export const ADMIN_PASSWORD_REQUIRED = 428;
+
+const allowAdminPasswordRequired = (status: number) =>
+  (status >= 200 && status < 300) || status === ADMIN_PASSWORD_REQUIRED;
+
+function adminPasswordHeader(adminPassword = ""): Record<string, string> {
+  return adminPassword ? { "X-Admin-Password": adminPassword } : {};
+}
+
 export type Product = {
   group: string;
   name: string;
   template: string;
+  link?: string;
 };
 
 export type Template = {
   Params: TemplateParam[];
+  Link?: string;
   Auth?: {
     type: string;
     params?: string[];
@@ -22,22 +34,16 @@ export type Template = {
 
 export type TemplateParamUsage = "vehicle" | "battery" | "grid" | "pv" | "charger" | "aux" | "ext";
 
-export type TemplateParamDependency = {
-  name: string;
-  check: "equal";
-  value: string | number | boolean;
-};
-
 export type TemplateParam = {
   Name: string;
   Required: boolean;
   Advanced: boolean;
   Deprecated: boolean;
   Default?: string | number | boolean;
+  Type?: string;
   Choice?: string[];
   Service?: string;
   Usages?: TemplateParamUsage[];
-  Dependencies?: TemplateParamDependency[];
 };
 
 export type ParamService = {
@@ -63,6 +69,7 @@ export type DeviceValues = {
   template: string | null;
   deviceTitle?: string;
   deviceIcon?: string;
+  deviceDisable?: boolean;
   usage?: MeterTemplateUsage;
   heating?: boolean;
   integrateddevice?: boolean;
@@ -75,6 +82,7 @@ export type ApiData = {
   icon?: string;
   usage?: MeterTemplateUsage;
   title?: string;
+  priority?: number;
   identifiers?: string[];
   [key: string]: any;
 };
@@ -95,11 +103,16 @@ export function handleError(e: any, msg: string) {
 
 export function applyDefaultsFromTemplate(template: Template | null, values: DeviceValues) {
   const params = template?.Params || [];
-  params
-    .filter((p) => p.Default && !values[p.Name])
-    .forEach((p) => {
+  params.forEach((p) => {
+    if (p.Type === "Bool") {
+      // template defaults are strings, and configs stored before bool params
+      // became real booleans hold "true"/"false" - the form model uses booleans
+      const v = values[p.Name] === undefined ? p.Default : values[p.Name];
+      values[p.Name] = v === true || v === "true";
+    } else if (p.Default && !values[p.Name]) {
       values[p.Name] = p.Default;
-    });
+    }
+  });
 }
 
 export function customChargerName(type: ConfigType, isHeating: boolean) {
@@ -114,57 +127,52 @@ export function customChargerName(type: ConfigType, isHeating: boolean) {
   return `${prefix}${type}`;
 }
 
-export function checkDependencies(
-  param: TemplateParam,
-  values: DeviceValues,
-  template?: Template | null
-): boolean {
-  if (!param.Dependencies || param.Dependencies.length === 0) {
-    return true;
+// flattenDeviceConfig converts a GET /config/devices/:class/:id response
+// into the flat shape expected by POST/PUT/test (id and name are dropped).
+//
+// GET (config = device-specific):
+//   {
+//     id: 26,
+//     name: "db:26",
+//     type: "template",
+//     deviceTitle: "Espresso",
+//     device__: "..",
+//     config: {
+//       template: "tasmota",
+//       host: "192.168.1.2"
+//     }
+//   }
+//
+// PUT|POST|test (flat):
+//   {
+//     type: "template",
+//     deviceTitle: "Espresso",
+//     device__: "..",
+//     template: "tasmota",
+//     host: "192.168.1.2"
+//   }
+//
+// TODO: align GET and PUT shapes — always nest device-specific values under
+// `config` and drop the artificial `device` prefix (deviceTitle → title, ...)
+// matching db structure. Once the API is symmetric this helper goes away.
+export function flattenDeviceConfig(dev: any): Record<string, any> {
+  const { id, name, config, ...rest } = dev;
+  const flat = { ...config, ...rest };
+  // title/icon are extracted from yaml on GET for display only; writing them
+  // back is rejected ("cannot mix yaml and other")
+  if (flat.yaml) {
+    delete flat.title;
+    delete flat.icon;
   }
-
-  // All dependencies must be satisfied
-  return param.Dependencies.every((dep) => {
-    let fieldValue = values[dep.name];
-
-    // If field value is not set, try to get default from template
-    if (fieldValue === undefined || fieldValue === null || fieldValue === "") {
-      if (template) {
-        const depParam = template.Params.find((p) => p.Name === dep.name);
-        if (depParam && depParam.Default !== undefined && depParam.Default !== null) {
-          fieldValue = depParam.Default;
-        }
-      }
-    }
-
-    if (dep.check === "equal") {
-      // Convert both to strings for comparison to handle type mismatches
-      // Use nullish coalescing to preserve legitimate falsy values (0, false)
-      const fieldStr = String(fieldValue ?? "");
-      const depStr = String(dep.value ?? "");
-
-      return fieldStr === depStr;
-    }
-    // Add more check types here if needed in the future
-    return false;
-  });
+  return flat;
 }
+
 export async function loadServiceValues(path: string) {
   try {
     const response = await api.get(`/config/service/${path}`, {
       validateStatus: (status) => status >= 200 && status < 500,
     });
-    if (response.status >= 400 && response.data && typeof response.data === "object") {
-      const err = (response.data as { error?: string }).error;
-      if (err) {
-        handleError({ response: { data: response.data } }, err);
-        return [];
-      }
-    }
-    if (Array.isArray(response.data)) {
-      return response.data as string[];
-    }
-    return [];
+    return (response.data as string[]) || [];
   } catch {
     return [];
   }
@@ -195,11 +203,8 @@ export const createServiceEndpoints = (params: TemplateParam[]): ParamService[] 
       const stringValues = (values: Record<string, any>): Record<string, string> =>
         Object.entries(values).reduce(
           (acc, [key, val]) => {
-            if (key === "modbus") return acc;
-            if (val === undefined || val === null) return acc;
-            // allow empty email/user so IAquaLink service URL placeholders resolve
-            if (val === "" && key !== "email" && key !== "user") return acc;
-            acc[key] = String(val);
+            if (val !== undefined && val !== null && val !== "" && key !== "modbus")
+              acc[key] = String(val);
             return acc;
           },
           {} as Record<string, string>
@@ -208,13 +213,8 @@ export const createServiceEndpoints = (params: TemplateParam[]): ParamService[] 
       return {
         name: param.Name,
         service: param.Service,
-        url: (values: Record<string, any>) => {
-          let merged = values;
-          if (param.Service?.includes("iaqualink")) {
-            merged = { email: "", user: "", ...values };
-          }
-          return replacePlaceholders(expandModbus(param.Service!, merged), stringValues(merged));
-        },
+        url: (values: Record<string, any>) =>
+          replacePlaceholders(expandModbus(param.Service!, values), stringValues(values)),
       } as ParamService;
     })
     .filter((endpoint): endpoint is ParamService => endpoint !== null);
@@ -245,21 +245,37 @@ export const fetchServiceValues = async (
 };
 
 export function createDeviceUtils(deviceType: DeviceType) {
-  function test(id: number | undefined, data: any) {
+  function test(id: number | undefined, data: any, adminPassword = "") {
     let url = `config/test/${deviceType}`;
     if (id !== undefined) {
       url += `/merge/${id}`;
     }
-    return api.post(url, data);
+    const opts = {
+      headers: adminPasswordHeader(adminPassword),
+      validateStatus: allowAdminPasswordRequired,
+    };
+    return api.post(url, data, opts);
   }
 
-  function update(id: number, data: any, force = false) {
-    const params = { force };
-    return api.put(`config/devices/${deviceType}/${id}`, data, { params });
+  function update(id: number, data: any, force = false, adminPassword = "") {
+    const opts = {
+      headers: adminPasswordHeader(adminPassword),
+      validateStatus: allowAdminPasswordRequired,
+      params: { force },
+    };
+    return api.put(`config/devices/${deviceType}/${id}`, data, opts);
   }
 
   function remove(id: number) {
     return api.delete(`config/devices/${deviceType}/${id}`);
+  }
+
+  // disable flips the disable flag by re-PUTing the existing config.
+  // force=true so a broken device can still be toggled.
+  async function disable(id: number, disable: boolean) {
+    const dev = (await api.get(`config/devices/${deviceType}/${id}`)).data;
+    const body = { ...flattenDeviceConfig(dev), deviceDisable: disable };
+    return api.put(`config/devices/${deviceType}/${id}`, body, { params: { force: true } });
   }
 
   async function load(id: number) {
@@ -267,10 +283,13 @@ export function createDeviceUtils(deviceType: DeviceType) {
     return response.data;
   }
 
-  async function create(data: any, force = false) {
-    const params = { force };
-    const response = await api.post(`config/devices/${deviceType}`, data, { params });
-    return response.data;
+  function create(data: any, force = false, adminPassword = "") {
+    const opts = {
+      headers: adminPasswordHeader(adminPassword),
+      validateStatus: allowAdminPasswordRequired,
+      params: { force },
+    };
+    return api.post(`config/devices/${deviceType}`, data, opts);
   }
 
   async function loadProducts(lang?: string, usage?: string) {
@@ -295,10 +314,18 @@ export function createDeviceUtils(deviceType: DeviceType) {
     return response.data;
   }
 
-  async function checkAuth(type: string, values: Record<string, any>): Promise<AuthCheckResponse> {
-    const params = { type, ...values };
+  async function checkAuth(
+    type: string,
+    values: Record<string, any>,
+    id?: number
+  ): Promise<AuthCheckResponse> {
+    const body = { type, ...values };
+    let url = `config/auth`;
+    if (id !== undefined) {
+      url += `/${deviceType}/merge/${id}`;
+    }
     try {
-      const { status, data = {} } = await api.post(`config/auth`, params, {
+      const { status, data = {} } = await api.post(url, body, {
         validateStatus: (status) => [204, 400].includes(status),
       });
       // already set up
@@ -319,6 +346,7 @@ export function createDeviceUtils(deviceType: DeviceType) {
     test,
     update,
     remove,
+    disable,
     load,
     create,
     loadProducts,

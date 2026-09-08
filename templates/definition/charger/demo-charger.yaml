@@ -34,10 +34,7 @@ params:
     description:
       de: Maximale Stromstärke
       en: Maximum amperage
-    unit: A
     help:
-    example: 16
-    type: int
     advanced: true
   - name: phases1p3p
     description:
@@ -65,7 +62,7 @@ render: |
   power:
     source: const
     value: {{ .power }}
-  {{ if eq .phases1p3p "true" }}
+  {{ if .phases1p3p }}
   phases1p3p:
     source: js
     script: |

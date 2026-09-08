@@ -1,0 +1,5 @@
+.forecast-chart-scroll {
+	overflow-x: auto;
+	padding-bottom: 4px;
+	margin-bottom: 0.5rem;
+}

@@ -1,6 +1,5 @@
 <template>
 	<FormRow
-		v-if="isVisible"
 		:id="id"
 		:optional="!Required"
 		:deprecated="Deprecated"
@@ -20,19 +19,22 @@
 			:choice="Choice"
 			:service-values="serviceValues"
 			:label="label"
+			:currency="currency"
 		/>
 	</FormRow>
 </template>
 
 <script>
-/* eslint-disable vue/prop-name-casing */
+/* oxlint-disable vue/prop-name-casing */
 import FormRow from "./FormRow.vue";
 import PropertyField from "./PropertyField.vue";
-import { checkDependencies } from "./DeviceModal/index";
+import formatter from "@/mixins/formatter";
+import { goDurationToUnit, goDurationUnit } from "@/utils/goDuration";
 
 export default {
 	name: "PropertyEntry",
 	components: { FormRow, PropertyField },
+	mixins: [formatter],
 	props: {
 		id: String,
 		Name: String,
@@ -46,11 +48,9 @@ export default {
 		Mask: Boolean,
 		Pattern: { type: Object, default: () => ({}) },
 		Choice: Array,
-		Dependencies: { type: Array, default: () => [] },
 		serviceValues: Array,
 		modelValue: [String, Number, Boolean, Object],
-		allValues: Object,
-		template: Object,
+		currency: { type: String, default: "EUR" },
 	},
 	emits: ["update:modelValue"],
 	computed: {
@@ -69,25 +69,11 @@ export default {
 			return this.Description === this.Help ? undefined : this.Help;
 		},
 		example() {
-			// hide example text since config ui doesnt use go duration format (e.g. 5m)
-			return this.Type === "Duration" ? undefined : this.Example;
-		},
-		isVisible() {
-			// Fields without dependencies are always visible
-			if (!this.Dependencies || this.Dependencies.length === 0) {
-				return true;
-			}
-
-			// Create a param-like object for checkDependencies
-			const param = {
-				Name: this.Name,
-				Required: this.Required,
-				Advanced: false,
-				Deprecated: this.Deprecated,
-				Dependencies: this.Dependencies,
-			};
-
-			return checkDependencies(param, this.allValues ?? {}, this.template ?? null);
+			// show duration example in its own unit, field unit is user-changeable
+			const unit = this.Type === "Duration" ? goDurationUnit(this.Example) : null;
+			if (!unit) return this.Example;
+			const value = goDurationToUnit(this.Example, unit);
+			return `${value} ${this.fmtDurationUnit(value, unit)}`;
 		},
 	},
 };

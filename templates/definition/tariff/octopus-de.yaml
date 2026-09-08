@@ -1,8 +1,10 @@
 template: octopus-de
+link: https://octopusenergy.de/dynamic-octopus
 products:
-  - brand: Octopus Energy Germany
+  - brand: Octopus Energy
     description:
-      generic: Deutschland
+      de: Deutschland
+      en: Germany
 requirements:
   evcc: ["skiptest"]
 countries: ["DE"]
@@ -21,11 +23,7 @@ params:
   - name: password
     type: string
     required: true
-    mask: true
     example: "secret"
-    description:
-      en: Password
-      de: Passwort
     help:
       de: "Das Passwort Ihres Octopus Energy Kontos."
       en: "The password of your Octopus Energy account."

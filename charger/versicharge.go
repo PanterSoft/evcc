@@ -69,12 +69,12 @@ func NewVersichargeFromConfig(ctx context.Context, other map[string]any) (api.Ch
 		return nil, err
 	}
 
-	return NewVersicharge(ctx, cc.URI, cc.ID)
+	return NewVersicharge(ctx, cc)
 }
 
 // NewVersicharge creates a Versicharge charger
-func NewVersicharge(ctx context.Context, uri string, id uint8) (*Versicharge, error) {
-	conn, err := modbus.NewConnection(ctx, uri, "", "", 0, modbus.Tcp, id)
+func NewVersicharge(ctx context.Context, settings modbus.TcpSettings) (*Versicharge, error) {
+	conn, err := settings.Connection(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -127,13 +127,22 @@ func (wb *Versicharge) Enable(enable bool) error {
 
 // MaxCurrent implements the api.Charger interface
 func (wb *Versicharge) MaxCurrent(current int64) error {
+	return wb.MaxCurrentMillis(float64(current))
+}
+
+var _ api.ChargerEx = (*Versicharge)(nil)
+
+// MaxCurrentMillis implements the api.ChargerEx interface
+func (wb *Versicharge) MaxCurrentMillis(current float64) error {
 	if current < 6 {
-		return fmt.Errorf("invalid current %d", current)
+		return fmt.Errorf("invalid current %.1f", current)
 	}
 
-	_, err := wb.conn.WriteSingleRegister(versiRegMaxCurrent, uint16(current))
+	curr := uint16(current * 100)
+
+	_, err := wb.conn.WriteSingleRegister(versiRegMaxCurrent, curr)
 	if err == nil {
-		wb.current = uint16(current)
+		wb.current = curr
 	}
 
 	return err
@@ -151,7 +160,7 @@ func (wb *Versicharge) CurrentPower() (float64, error) {
 	var sum float64
 	for i := range 3 {
 		if u := binary.BigEndian.Uint16(b[2*i:]); u != 0xFFFF {
-			sum += float64(u)
+			sum += float64(int16(u))
 		}
 	}
 
