@@ -39,9 +39,8 @@ params:
       de: Seriennummer
       en: Serial number
     help:
-      de: Nur erforderlich, wenn das Konto mehr als eine Wärmepumpe enthält
-      en: Only required if the account contains more than one heat pump
-    service: iaqualink/devices?user={user}&password={password}
+      de: Nur erforderlich, wenn das Konto mehr als eine Wärmepumpe enthält. Bei leerem Feld nennt die Fehlermeldung die verfügbaren Seriennummern.
+      en: Only required if the account contains more than one heat pump. Leave empty to have the error message list the available serial numbers.
   - name: cache
     advanced: true
     default: 30s
