@@ -13,9 +13,9 @@ requirements:
       Eco (langsam und leise), mittlerer → Smart (optimaler Betriebspunkt), viel → Boost
       (so schnell wie möglich). Die Grenzen sind über ecopower/boostpower einstellbar.
 
-      Im Modus „Normal" läuft das Gerät in seinem eigenen adaptiven Smart-Programm.
-      evcc steuert ausschließlich die Betriebsart und schaltet das Gerät nicht ein oder aus.
-      Die Wärmepumpe muss daher in der iAqualink-App eingeschaltet sein.
+      Im Modus „Aus" wird das Gerät abgeschaltet, sonst eingeschaltet und in der
+      passenden Betriebsart betrieben. Bei zu wenig Überschuss wird nur die Betriebsart
+      reduziert und nicht abgeschaltet, da häufiges Schalten den Kompressor belastet.
       Das Gerät meldet keine Leistungsaufnahme. Für die Verbrauchsmessung ist ein separater Zähler nötig.
     en: |
       Zodiac zs500-family pool heat pump via the iAqualink cloud.
@@ -24,9 +24,9 @@ requirements:
       quiet), medium → smart (best operating point), plenty → boost (as fast as possible).
       The thresholds are configurable via ecopower/boostpower.
 
-      In "normal" mode the device runs its own adaptive smart program.
-      evcc only controls the operating mode and never switches the device on or off,
-      so the heat pump must be switched on in the iAqualink app.
+      In "off" mode the device is switched off, otherwise it is switched on and run in
+      the appropriate operating mode. Insufficient surplus only lowers the operating
+      mode rather than switching off, as frequent cycling stresses the compressor.
       The device does not report power consumption. Use a separate meter to measure it.
 params:
   - name: user

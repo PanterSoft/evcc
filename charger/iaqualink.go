@@ -49,6 +49,7 @@ type IAquaLink struct {
 	power   int64         // last power offered by evcc
 	applied heatpump.Mode // last mode written to the device
 	valid   bool          // applied is meaningful
+	powered *bool         // last power state written to the device
 }
 
 // NewIAquaLinkFromConfig creates an IAquaLink charger from generic config
@@ -63,7 +64,7 @@ func NewIAquaLinkFromConfig(ctx context.Context, other map[string]any) (api.Char
 	}{
 		embed: embed{
 			Icon_:     "heatpump",
-			Features_: []api.Feature{api.Continuous, api.Heating, api.IntegratedDevice},
+			Features_: []api.Feature{api.Heating, api.IntegratedDevice},
 		},
 		// the cloud API rate-limits below roughly one request per 10s
 		Cache:      30 * time.Second,
@@ -195,9 +196,37 @@ func (c *IAquaLink) deviceMode() heatpump.Mode {
 	}
 }
 
-// applyMode writes the derived device mode, skipping unchanged writes as the
-// cloud API is rate-limited
+// off reports whether the loadpoint is switched off. Only the charge mode is
+// consulted, never the enabled state: evcc also disables on insufficient surplus,
+// and cutting power there would short-cycle the compressor.
+func (c *IAquaLink) off() bool {
+	return c.lp != nil && c.lp.GetMode() == api.ModeOff
+}
+
+// applyMode writes the power state and derived device mode, skipping unchanged
+// writes as the cloud API is rate-limited
 func (c *IAquaLink) applyMode(ctx context.Context) error {
+	power := !c.off()
+
+	c.mu.Lock()
+	powerChanged := c.powered == nil || *c.powered != power
+	c.mu.Unlock()
+
+	if powerChanged {
+		if err := c.hp.SetPower(ctx, power); err != nil {
+			return err
+		}
+
+		c.mu.Lock()
+		c.powered = &power
+		c.mu.Unlock()
+	}
+
+	// the unit ignores mode writes while off
+	if !power {
+		return nil
+	}
+
 	c.mu.Lock()
 	mode := c.deviceMode()
 	unchanged := c.valid && mode == c.applied
