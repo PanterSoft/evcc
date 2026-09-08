@@ -14,7 +14,7 @@ requirements:
 
       evcc steuert ausschließlich die Betriebsart und schaltet das Gerät nicht ein oder aus.
       Die Wärmepumpe muss daher in der iAqualink-App eingeschaltet sein.
-      Das Gerät meldet keine Leistungsaufnahme, diese muss über `maxpower` hinterlegt werden.
+      Das Gerät meldet keine Leistungsaufnahme. Für die Verbrauchsmessung ist ein separater Zähler nötig.
     en: |
       Zodiac zs500-family pool heat pump via the iAqualink cloud.
 
@@ -23,7 +23,7 @@ requirements:
 
       evcc only controls the operating mode and never switches the device on or off,
       so the heat pump must be switched on in the iAqualink app.
-      The device does not report power consumption, configure it using `maxpower`.
+      The device does not report power consumption. Use a separate meter to measure it.
 params:
   - name: user
     required: true
