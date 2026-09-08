@@ -170,12 +170,19 @@ func (c *IAquaLink) setMaxPower(ctx context.Context, power int64) error {
 // The device modes are efficiency levels rather than output steps: eco heats slowly
 // and quietly, smart looks for the best operating point, boost heats as fast as it
 // can regardless of consumption. Selecting them by the available power therefore runs
-// the pump at the efficiency its energy budget allows. Only the enabled state
-// modulates - dim (§14a) and normal (disabled) both idle the pump in eco, as the unit
-// is never switched off: power-cycling short-cycles its compressor.
+// the pump at the efficiency its energy budget allows.
+//
+// Only the enabled state modulates: SG Ready normal leaves the unit in its own adaptive
+// smart program and dim (§14a) drops it to eco. The unit is never switched off, as
+// power-cycling short-cycles its compressor.
 func (c *IAquaLink) deviceMode() heatpump.Mode {
-	if c.sgMode != Boost {
+	switch {
+	case c.sgMode == Dim:
+		// §14a curtailment: least consumption the unit offers
 		return heatpump.ModeEco
+	case c.sgMode != Boost:
+		// SG Ready normal operation - the unit runs its own adaptive program
+		return heatpump.ModeSmart
 	}
 
 	switch {

@@ -13,6 +13,7 @@ requirements:
       Eco (langsam und leise), mittlerer → Smart (optimaler Betriebspunkt), viel → Boost
       (so schnell wie möglich). Die Grenzen sind über ecopower/boostpower einstellbar.
 
+      Im Modus „Normal" läuft das Gerät in seinem eigenen adaptiven Smart-Programm.
       evcc steuert ausschließlich die Betriebsart und schaltet das Gerät nicht ein oder aus.
       Die Wärmepumpe muss daher in der iAqualink-App eingeschaltet sein.
       Das Gerät meldet keine Leistungsaufnahme. Für die Verbrauchsmessung ist ein separater Zähler nötig.
@@ -23,6 +24,7 @@ requirements:
       quiet), medium → smart (best operating point), plenty → boost (as fast as possible).
       The thresholds are configurable via ecopower/boostpower.
 
+      In "normal" mode the device runs its own adaptive smart program.
       evcc only controls the operating mode and never switches the device on or off,
       so the heat pump must be switched on in the iAqualink app.
       The device does not report power consumption. Use a separate meter to measure it.

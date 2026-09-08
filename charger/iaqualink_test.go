@@ -23,8 +23,10 @@ func TestIAquaLinkDeviceMode(t *testing.T) {
 		{Boost, 1999, heatpump.ModeSmart},
 		{Boost, 2000, heatpump.ModeBoost},
 		{Boost, 5000, heatpump.ModeBoost},
-		// disabled and §14a dim idle the device regardless of power
-		{Normal, 5000, heatpump.ModeEco},
+		// normal operation leaves the unit in its own adaptive program,
+		// §14a dim drops it to the least consumption, both regardless of power
+		{Normal, 5000, heatpump.ModeSmart},
+		{Normal, 0, heatpump.ModeSmart},
 		{Dim, 5000, heatpump.ModeEco},
 	} {
 		c.sgMode, c.power = tc.sgMode, tc.power
