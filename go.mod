@@ -7,6 +7,7 @@ require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/PanterSoft/comlynx-go v0.1.0
+	github.com/PanterSoft/iAqualink_go v0.0.0-20260908085740-95c794a780ee
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/WulfgarW/sensonet v0.0.8
 	github.com/andig/go-powerwall v0.3.0

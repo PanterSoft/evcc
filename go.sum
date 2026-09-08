@@ -15,6 +15,8 @@ github.com/Netflix/go-expect v0.0.0-20220104043353-73e0943537d2 h1:+vx7roKuyA63n
 github.com/Netflix/go-expect v0.0.0-20220104043353-73e0943537d2/go.mod h1:HBCaDeC1lPdgDeDbhX8XFpy1jqjK0IBG8W5K+xYqA0w=
 github.com/PanterSoft/comlynx-go v0.1.0 h1:+Kd0lJqHlWQNv9WliijoKTFrcZSZ33RBxIvi6SE5TbQ=
 github.com/PanterSoft/comlynx-go v0.1.0/go.mod h1:X+jgiMXuPftrh5cpoMm648+DpTM2RdKm5FBCyL8KpLw=
+github.com/PanterSoft/iAqualink_go v0.0.0-20260908085740-95c794a780ee h1:TjYNLvdfwWzPcmY5b7/aGm/Z6twl03ZtWhidDryS8z8=
+github.com/PanterSoft/iAqualink_go v0.0.0-20260908085740-95c794a780ee/go.mod h1:uhOzNfh8Vyc6T/R//4l9aCqlLoXPoAxAU8ou0QHl1XE=
 github.com/PuerkitoBio/goquery v1.13.0 h1:mqHbjD7Jmnul4DTR24LKTjo1uUmHUh072kteGV+xpFM=
 github.com/PuerkitoBio/goquery v1.13.0/go.mod h1:Hip5mdBL8K2wEGKJdr27sRaNwIdDajmCwB/ExUPwW+g=
 github.com/RaveNoX/go-jsoncommentstrip v1.0.0/go.mod h1:78ihd09MekBnJnxpICcwzCMzGrKSKYe4AqU6PDYYpjk=

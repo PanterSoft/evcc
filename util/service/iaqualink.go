@@ -1,15 +1,12 @@
 package service
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
-	"strconv"
-	"strings"
 
+	iaqualink "github.com/PanterSoft/iAqualink_go"
 	"github.com/evcc-io/evcc/server/service"
-	"github.com/evcc-io/evcc/util"
-	"github.com/evcc-io/evcc/util/request"
-	"github.com/tekkamanendless/iaqualink"
+	"github.com/samber/lo"
 )
 
 func init() {
@@ -18,61 +15,29 @@ func init() {
 	service.Register("iaqualink", mux)
 }
 
-// iaqualinkDevices validates IAquaLink cloud credentials and returns device identifiers for the config UI.
-// Query: email, user (optional alternative to email), password (required).
+// iaqualinkDevices returns the serial numbers of the heat pumps of an iAqualink account
 func iaqualinkDevices(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	login := strings.TrimSpace(q.Get("email"))
-	if login == "" {
-		login = strings.TrimSpace(q.Get("user"))
-	}
-	password := q.Get("password")
-	if login == "" || password == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "email or user and password are required",
-		})
+	user, password := q.Get("user"), q.Get("password")
+
+	if user == "" || password == "" {
+		jsonError(w, http.StatusBadRequest, errors.New("user and password are required"))
 		return
 	}
 
-	log := util.NewLogger("iaqualink").Redact(login, password)
-	client := &iaqualink.Client{
-		Client: request.NewClient(log),
-	}
-
-	if _, err := client.Login(login, password); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "IAquaLink login failed: " + err.Error(),
-		})
-		return
-	}
-
-	devices, err := client.ListDevices()
+	client, err := iaqualink.NewClient(r.Context(), user, password)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "IAquaLink device list failed: " + err.Error(),
-		})
+		jsonError(w, http.StatusUnauthorized, err)
 		return
 	}
 
-	out := make([]string, 0, len(devices))
-	for _, d := range devices {
-		if d.SerialNumber != "" {
-			out = append(out, d.SerialNumber)
-			continue
-		}
-		if d.Name != "" {
-			out = append(out, d.Name)
-			continue
-		}
-		out = append(out, strconv.Itoa(d.ID))
+	devices, err := client.ListDevices(r.Context())
+	if err != nil {
+		jsonError(w, http.StatusBadGateway, err)
+		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
+	jsonWrite(w, lo.FilterMap(devices, func(d iaqualink.DeviceInfo, _ int) (string, bool) {
+		return d.SerialNumber, d.DeviceType == iaqualink.DeviceTypeZS500
+	}))
 }
