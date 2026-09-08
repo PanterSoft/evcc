@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	iaqualink "github.com/PanterSoft/iAqualink_go"
@@ -40,6 +41,14 @@ type IAquaLink struct {
 	*SgReady
 	hp    *heatpump.HeatPump
 	state func() (*heatpump.State, error)
+
+	ecoPower, boostPower int64
+
+	mu      sync.Mutex
+	sgMode  int64         // last mode requested by evcc
+	power   int64         // last power offered by evcc
+	applied heatpump.Mode // last mode written to the device
+	valid   bool          // applied is meaningful
 }
 
 // NewIAquaLinkFromConfig creates an IAquaLink charger from generic config
@@ -49,13 +58,17 @@ func NewIAquaLinkFromConfig(ctx context.Context, other map[string]any) (api.Char
 		User, Password string
 		Device         string
 		Cache          time.Duration
+		EcoPower       int64 `mapstructure:"ecopower"`
+		BoostPower     int64 `mapstructure:"boostpower"`
 	}{
 		embed: embed{
 			Icon_:     "heatpump",
-			Features_: []api.Feature{api.Heating, api.IntegratedDevice},
+			Features_: []api.Feature{api.Continuous, api.Heating, api.IntegratedDevice},
 		},
 		// the cloud API rate-limits below roughly one request per 10s
-		Cache: 30 * time.Second,
+		Cache:      30 * time.Second,
+		EcoPower:   1000,
+		BoostPower: 2000,
 	}
 
 	if err := util.DecodeOther(other, &cc); err != nil {
@@ -64,6 +77,10 @@ func NewIAquaLinkFromConfig(ctx context.Context, other map[string]any) (api.Char
 
 	if cc.User == "" || cc.Password == "" {
 		return nil, api.ErrMissingCredentials
+	}
+
+	if cc.EcoPower >= cc.BoostPower {
+		return nil, fmt.Errorf("ecopower (%dW) must be below boostpower (%dW)", cc.EcoPower, cc.BoostPower)
 	}
 
 	log := util.NewLogger("iaqualink").Redact(cc.User, cc.Password, cc.Device)
@@ -94,7 +111,9 @@ func NewIAquaLinkFromConfig(ctx context.Context, other map[string]any) (api.Char
 	}
 
 	c := &IAquaLink{
-		hp: hp,
+		hp:         hp,
+		ecoPower:   cc.EcoPower,
+		boostPower: cc.BoostPower,
 		state: util.Cached(func() (*heatpump.State, error) {
 			return hp.GetState(ctx)
 		}, cc.Cache),
@@ -109,9 +128,14 @@ func NewIAquaLinkFromConfig(ctx context.Context, other map[string]any) (api.Char
 		log.WARN.Println("device is switched off - evcc controls the operating mode only and will not switch it on")
 	}
 
+	// the mode getter is nil on purpose: the device mode is derived from the offered
+	// power, so reading it back would not round-trip to the requested SG Ready mode
+	// and Enabled() would contradict the last Enable() call
 	c.SgReady, err = NewSgReady(ctx, &cc.embed, func(mode int64) error {
 		return c.setMode(ctx, mode)
-	}, c.getMode, nil)
+	}, nil, func(power int64) error {
+		return c.setMaxPower(ctx, power)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +145,70 @@ func NewIAquaLinkFromConfig(ctx context.Context, other map[string]any) (api.Char
 	implement.Has(c, implement.SocLimiter(c.limitTemp))
 
 	return c, nil
+}
+
+// setMode records the SG Ready mode requested by evcc
+func (c *IAquaLink) setMode(ctx context.Context, mode int64) error {
+	c.mu.Lock()
+	c.sgMode = mode
+	c.mu.Unlock()
+
+	return c.applyMode(ctx)
+}
+
+// setMaxPower records the power evcc offers the device
+func (c *IAquaLink) setMaxPower(ctx context.Context, power int64) error {
+	c.mu.Lock()
+	c.power = power
+	c.mu.Unlock()
+
+	return c.applyMode(ctx)
+}
+
+// deviceMode picks the device mode from the SG Ready mode and the offered power.
+//
+// The device modes are efficiency levels rather than output steps: eco heats slowly
+// and quietly, smart looks for the best operating point, boost heats as fast as it
+// can regardless of consumption. Selecting them by the available power therefore runs
+// the pump at the efficiency its energy budget allows. Only the enabled state
+// modulates - dim (§14a) and normal (disabled) both idle the pump in eco, as the unit
+// is never switched off: power-cycling short-cycles its compressor.
+func (c *IAquaLink) deviceMode() heatpump.Mode {
+	if c.sgMode != Boost {
+		return heatpump.ModeEco
+	}
+
+	switch {
+	case c.power < c.ecoPower:
+		return heatpump.ModeEco
+	case c.power < c.boostPower:
+		return heatpump.ModeSmart
+	default:
+		return heatpump.ModeBoost
+	}
+}
+
+// applyMode writes the derived device mode, skipping unchanged writes as the
+// cloud API is rate-limited
+func (c *IAquaLink) applyMode(ctx context.Context) error {
+	c.mu.Lock()
+	mode := c.deviceMode()
+	unchanged := c.valid && mode == c.applied
+	c.mu.Unlock()
+
+	if unchanged {
+		return nil
+	}
+
+	if err := c.hp.SetMode(ctx, mode); err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	c.applied, c.valid = mode, true
+	c.mu.Unlock()
+
+	return nil
 }
 
 // temp implements the api.Battery interface and returns the water temperature
@@ -145,36 +233,4 @@ func (c *IAquaLink) limitTemp() (int64, error) {
 	}
 
 	return int64(math.Round(state.TargetTemp)), nil
-}
-
-// sgReadyModes maps evcc SG Ready modes to iAqualink heat pump modes.
-// There is no mapping for switching the device off: SG Ready Dim asks for reduced
-// operation, and power-cycling the unit short-cycles its compressor.
-var sgReadyModes = map[int64]heatpump.Mode{
-	Dim:    heatpump.ModeEco,
-	Normal: heatpump.ModeSmart,
-	Boost:  heatpump.ModeBoost,
-}
-
-func (c *IAquaLink) setMode(ctx context.Context, mode int64) error {
-	hpMode, ok := sgReadyModes[mode]
-	if !ok {
-		return fmt.Errorf("invalid mode: %d", mode)
-	}
-
-	return c.hp.SetMode(ctx, hpMode)
-}
-
-func (c *IAquaLink) getMode() (int64, error) {
-	state, err := c.state()
-	if err != nil {
-		return 0, err
-	}
-
-	mode, ok := lo.FindKey(sgReadyModes, state.Mode)
-	if !ok {
-		return 0, fmt.Errorf("unknown device mode: %s", state.Mode)
-	}
-
-	return mode, nil
 }

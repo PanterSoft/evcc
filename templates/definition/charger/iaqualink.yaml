@@ -9,8 +9,9 @@ requirements:
     de: |
       Zodiac Poolwärmepumpe der zs500-Familie über die iAqualink-Cloud.
 
-      Die evcc SG-Ready-Modi werden auf die Betriebsart der Wärmepumpe abgebildet:
-      Boost (3) → Boost, Normal (2) → Smart, Dimmen (1) → Eco.
+      Die Betriebsart wird aus dem verfügbaren Überschuss gewählt: wenig Überschuss →
+      Eco (langsam und leise), mittlerer → Smart (optimaler Betriebspunkt), viel → Boost
+      (so schnell wie möglich). Die Grenzen sind über ecopower/boostpower einstellbar.
 
       evcc steuert ausschließlich die Betriebsart und schaltet das Gerät nicht ein oder aus.
       Die Wärmepumpe muss daher in der iAqualink-App eingeschaltet sein.
@@ -18,8 +19,9 @@ requirements:
     en: |
       Zodiac zs500-family pool heat pump via the iAqualink cloud.
 
-      The evcc SG Ready modes map to the heat pump operating mode:
-      boost (3) → boost, normal (2) → smart, dim (1) → eco.
+      The operating mode follows the available surplus: little surplus → eco (slow and
+      quiet), medium → smart (best operating point), plenty → boost (as fast as possible).
+      The thresholds are configurable via ecopower/boostpower.
 
       evcc only controls the operating mode and never switches the device on or off,
       so the heat pump must be switched on in the iAqualink app.
@@ -41,6 +43,28 @@ params:
     help:
       de: Nur erforderlich, wenn das Konto mehr als eine Wärmepumpe enthält. Bei leerem Feld nennt die Fehlermeldung die verfügbaren Seriennummern.
       en: Only required if the account contains more than one heat pump. Leave empty to have the error message list the available serial numbers.
+  - name: ecopower
+    advanced: true
+    type: int
+    unit: W
+    default: 1000
+    description:
+      de: Grenze Eco-Modus
+      en: Eco mode threshold
+    help:
+      de: Unterhalb dieser Leistung heizt das Gerät im Eco-Modus (langsam und leise).
+      en: Below this power the device heats in eco mode (slow and quiet).
+  - name: boostpower
+    advanced: true
+    type: int
+    unit: W
+    default: 2000
+    description:
+      de: Grenze Boost-Modus
+      en: Boost mode threshold
+    help:
+      de: Ab dieser Leistung heizt das Gerät im Boost-Modus, dazwischen im Smart-Modus.
+      en: From this power the device heats in boost mode, in between in smart mode.
   - name: cache
     advanced: true
     default: 30s
@@ -54,4 +78,6 @@ render: |
   {{- if .device }}
   device: {{ .device }}
   {{- end }}
+  ecopower: {{ .ecopower }}
+  boostpower: {{ .boostpower }}
   cache: {{ .cache }}

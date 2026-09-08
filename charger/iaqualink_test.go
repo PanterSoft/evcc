@@ -3,21 +3,31 @@ package charger
 import (
 	"testing"
 
-	"github.com/samber/lo"
+	"github.com/PanterSoft/iAqualink_go/heatpump"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// TestIAquaLinkModes verifies that every SG Ready mode maps to a valid device
-// mode and that the mapping is reversible, as getMode relies on lo.FindKey.
-func TestIAquaLinkModes(t *testing.T) {
-	for _, mode := range []int64{Dim, Normal, Boost} {
-		hpMode, ok := sgReadyModes[mode]
-		require.True(t, ok, "no device mode for SG Ready mode %d", mode)
-		assert.True(t, hpMode.Valid(), "invalid device mode %s for SG Ready mode %d", hpMode, mode)
+// TestIAquaLinkDeviceMode verifies that the offered power selects the device
+// efficiency mode, and that only the enabled state modulates.
+func TestIAquaLinkDeviceMode(t *testing.T) {
+	c := &IAquaLink{ecoPower: 1000, boostPower: 2000}
 
-		res, ok := lo.FindKey(sgReadyModes, hpMode)
-		require.True(t, ok)
-		assert.Equal(t, mode, res)
+	for _, tc := range []struct {
+		sgMode   int64
+		power    int64
+		expected heatpump.Mode
+	}{
+		{Boost, 0, heatpump.ModeEco},
+		{Boost, 999, heatpump.ModeEco},
+		{Boost, 1000, heatpump.ModeSmart},
+		{Boost, 1999, heatpump.ModeSmart},
+		{Boost, 2000, heatpump.ModeBoost},
+		{Boost, 5000, heatpump.ModeBoost},
+		// disabled and §14a dim idle the device regardless of power
+		{Normal, 5000, heatpump.ModeEco},
+		{Dim, 5000, heatpump.ModeEco},
+	} {
+		c.sgMode, c.power = tc.sgMode, tc.power
+		assert.Equal(t, tc.expected, c.deviceMode(), "sgMode %d, power %dW", tc.sgMode, tc.power)
 	}
 }
